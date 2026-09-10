@@ -1,9 +1,9 @@
 # Davesplorer
 
-A native C++20 file manager for Windows and Linux, built on SDL3 and Dear
-ImGui (docking branch), with a Windows Explorer style interface. Windows
-builds are portable folders; Linux builds use the desktop’s filesystem,
-trash, and application associations.
+A native C++20 file manager for Windows, Linux and macOS, built on SDL3 and
+Dear ImGui (docking branch), with a Windows Explorer style interface. Windows
+builds are portable folders; Linux and macOS builds use the desktop’s
+filesystem, trash, and application associations.
 
 ## Linux
 
@@ -216,16 +216,76 @@ anything: set `DSP_SHIM_DRYRUN=1` and it appends each decision to
     src/ui/               everything that draws
     src/platform/         Win32 platform layer and shared SDL host loop
     src/platform/linux/   Linux filesystem, clipboard, and desktop integration
+    src/platform/macos/   macOS equivalents, in Objective-C++
     assets/fonts/         Open Sans, Fira Code, Material Icons
     assets/icon/          the red-folder app icon (.ico, .png)
     tools/make_icon.py    regenerates the icon
     tests/                console test binaries
     cmake/dsp_imconfig.h  ImGui configuration (test-engine hooks on)
+    cmake/Info.plist.in   macOS bundle keys
 
 The interface reads application state and owns none of it. `app::AppState`
 and `app::Tab` are plain structs; the unit tests exercise navigation,
 listing, sorting, selection and file operations without a window. Failures
 cross module boundaries as `bool` plus an error string, never as exceptions.
+
+## macOS
+
+Requires the Xcode command line tools (`xcode-select --install`) plus CMake
+3.24+ and Ninja; with Homebrew, `brew install cmake ninja`. Nothing else: the
+platform layer is Objective-C++ against Foundation, AppKit and
+UniformTypeIdentifiers, which ship with the system. The first configure
+downloads SDL3, Dear ImGui, and the test engine.
+
+```sh
+./build.sh                         # configure, build, and run both test suites
+open ./build/macos-release/stage/davesplorer.app
+./build/macos-release/stage/davesplorer.app/Contents/MacOS/davesplorer "$HOME/Downloads"
+./build.sh debug                   # optional debug build
+```
+
+`build.sh` picks the preset from `uname`; the manual commands are
+`cmake --preset macos-release`, `cmake --build --preset macos-release`, and
+`ctest --preset macos-release --output-on-failure`. SDL renders through
+Metal.
+
+The build produces a real `davesplorer.app`: without a bundle, macOS has no
+icon, name or identity to read for the app and shows it in the Dock
+borrowing the icon of whatever launched it. `Contents/Resources` holds the
+icon and the assets, and `platform::ExecutableDir` resolves there inside a
+bundle, so assets load the same way as on the other platforms. The `.icns`
+is generated at build time from the same 256px PNG the other platforms use,
+by `sips` and `iconutil`; 256px is that PNG's ceiling, which covers the Dock
+at Retina but leaves Finder's largest preview soft. The bundle declares no
+document types, so Finder does not offer Davesplorer as a handler for
+folders; pass a path on the command line instead. Settings and the dock
+layout live in `~/Library/Application Support/davesplorer`. Home and special folders come
+from the standard search paths, with Movies in place of Videos. “This PC”
+shows the root volume and everything mounted under `/Volumes`, named the way
+Finder names it. Items are hidden by a leading dot or by the filesystem’s
+own hidden flag. Type names come from UniformTypeIdentifiers.
+
+Delete moves to the Finder trash through `NSFileManager`; permanent deletion
+requires the existing confirmation dialog. Rename and move are atomic and
+never overwrite (`renamex_np` with `RENAME_EXCL`). “Open” and “Reveal” hand
+off to `NSWorkspace`, and “Open terminal here” launches Terminal.app.
+
+The default APFS volume folds case, so two names differing only in case are
+one item; the tests detect this rather than assume it.
+
+Cut/copy/paste goes through `NSPasteboard` rather than SDL, which on macOS
+would publish a custom type as a synthesized `dyn.` identifier no other
+application knows and would read back only the first pasteboard item. Files
+copied here paste in Finder and files copied in Finder paste here, all of
+them. Each file is written as a `public.file-url` item; the paths also ride
+along verbatim in a private type, because a file URL comes back canonically
+decomposed and this app’s own paste wants the bytes it was given. Cut is
+private too — nothing on macOS cuts files through the pasteboard, so other
+applications see a plain copy. Off the Cocoa driver, which is how the tests
+run, the clipboard is a private pasteboard, so a test run leaves whatever
+you have copied alone.
+**Dragging out to another application is not implemented on macOS yet; use
+copy/paste instead.**
 
 ## Windows build
 
