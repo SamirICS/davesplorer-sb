@@ -6,6 +6,8 @@
 #include <shellapi.h>
 #include <shlwapi.h>
 
+#include <filesystem>
+
 namespace platform
 {
 
@@ -100,6 +102,12 @@ bool OpenTerminalAt(const std::string& dir, std::string& error)
     std::string ignored;
     if (Execute(nullptr, L"wt.exe", L"-d \"" + Utf8ToWide(dir) + L"\"", L"", ignored)) return true;
     return Execute(nullptr, L"cmd.exe", L"", Utf8ToWide(dir), error);
+}
+
+bool RunExecutable(const std::string& path, const std::string& workingDir, std::string& error)
+{
+    const std::string dir = workingDir.empty() ? std::filesystem::path(path).parent_path().string() : workingDir;
+    return Execute(L"open", Utf8ToWide(path), L"", Utf8ToWide(dir), error);
 }
 
 } // namespace platform

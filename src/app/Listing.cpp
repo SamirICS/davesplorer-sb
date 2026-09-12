@@ -24,6 +24,9 @@ std::unordered_map<std::string, std::string>& TypeNameCache()
 std::string TypeNameFor(const platform::FileEntry& e)
 {
     if (e.isDirectory) return "File folder";
+    // Ahead of the cache, which is keyed by extension alone: what makes
+    // this one a program is its permission bits, not its name.
+    if (e.isExecutable && e.extension.empty()) return "Application";
     auto& cache = TypeNameCache();
     auto it = cache.find(e.extension);
     if (it != cache.end()) return it->second;

@@ -97,6 +97,8 @@ bool ListDirectory(const std::string& path, std::vector<FileEntry>& out, std::st
         if (e.isReparsePoint) { struct stat target{}; if (stat(e.path.c_str(), &target) == 0) st = target; }
         e.isDirectory = S_ISDIR(st.st_mode);
         e.isReadOnly = access(e.path.c_str(), W_OK) != 0;
+        // A folder's execute bit means "may be entered", not "may be run".
+        e.isExecutable = !e.isDirectory && access(e.path.c_str(), X_OK) == 0;
         e.size = e.isDirectory ? 0 : st.st_size;
         e.modified = st.st_mtime;
         if (!e.isDirectory)

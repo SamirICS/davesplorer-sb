@@ -67,6 +67,10 @@ Kind KindOf(const platform::FileEntry& e)
     if (In(x, { "c", "cpp", "h", "hpp", "cs", "py", "js", "ts", "json", "xml", "html", "css", "java", "rs", "go",
                 "cmake", "sh", "yaml", "yml", "toml", "sql" }))
         return Kind::Code;
+    // Extensions first: a name that says "script" describes a file better
+    // than its permission bits do. What is left runnable is a program,
+    // usually one with no extension at all.
+    if (e.isExecutable) return Kind::Executable;
     return Kind::File;
 }
 

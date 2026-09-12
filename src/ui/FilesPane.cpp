@@ -304,6 +304,7 @@ void DrawRowContextMenu(app::AppState& state, UiState& ui, int tabIndex)
     const bool haveSelection = app::SelectedCount(tab) > 0;
     const bool focusedIsFolder = tab.focused >= 0 && tab.entries[(size_t)tab.focused].isDirectory;
     const bool focusedIsImage = tab.focused >= 0 && !focusedIsFolder && app::IsViewableImage(tab.entries[(size_t)tab.focused].extension);
+    const bool focusedIsProgram = tab.focused >= 0 && tab.entries[(size_t)tab.focused].isExecutable;
     const std::string focusedPath = tab.focused >= 0 ? tab.entries[(size_t)tab.focused].path : std::string();
     if (ImGui::MenuItem("Open"))
         {
@@ -318,6 +319,17 @@ void DrawRowContextMenu(app::AppState& state, UiState& ui, int tabIndex)
     // The two ways to open an image, both always on offer whatever the
     // double-click preference says.
     if (ImGui::MenuItem("View in Davesplorer", nullptr, false, focusedIsImage)) OpenFileView(state, ui, focusedPath);
+    // A program is started, not opened: no handler is asked, and it runs in
+    // the folder it lives in.
+    if (ImGui::MenuItem("Run", nullptr, false, focusedIsProgram))
+        {
+        std::string error;
+        for (int i : app::SelectedIndices(tab))
+            {
+            const platform::FileEntry& e = tab.entries[(size_t)i];
+            if (e.isExecutable && !platform::RunExecutable(e.path, tab.path, error)) ShowError(ui, error);
+            }
+        }
     if (ImGui::MenuItem("Open with default program", nullptr, false, tab.focused >= 0 && !focusedIsFolder))
         {
         std::string error;

@@ -57,4 +57,16 @@ bool OpenTerminalAt(const std::string& dir, std::string& error)
     error = "No supported terminal emulator was found.";
     return false;
 }
+bool RunExecutable(const std::string& path, const std::string& workingDir, std::string& error)
+{
+    const std::string dir = workingDir.empty() ? std::filesystem::path(path).parent_path().string() : workingDir;
+    // argv, not a command line: the program's own name is all the child
+    // gets, so nothing in it can be read back as shell code.
+    std::string program = path;
+    char* args[] = {program.data(), nullptr};
+    GError* e = nullptr;
+    const bool ok = g_spawn_async(dir.empty() ? nullptr : dir.c_str(), args, nullptr, G_SPAWN_DEFAULT,
+                                  nullptr, nullptr, nullptr, &e);
+    return Finish(ok, e, error);
+}
 }
