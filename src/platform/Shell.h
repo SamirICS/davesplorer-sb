@@ -23,4 +23,9 @@ bool OpenFolderInExplorer(const std::string& folder, std::string& error);
 // A command prompt in the given folder.
 bool OpenTerminalAt(const std::string& dir, std::string& error);
 
+// Starts a program: the file itself is argv[0], nothing is handed to a
+// shell, and it runs in workingDir -- or in its own folder when that is
+// empty -- so a program finds the files it keeps beside itself.
+bool RunExecutable(const std::string& path, const std::string& workingDir, std::string& error);
+
 } // namespace platform

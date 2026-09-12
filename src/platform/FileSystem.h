@@ -24,6 +24,7 @@ struct FileEntry
     bool         isSystem = false;
     bool         isReadOnly = false;
     bool         isReparsePoint = false;
+    bool         isExecutable = false;  // a program this user can run; only the Linux listing fills it in
 };
 
 struct DriveInfo

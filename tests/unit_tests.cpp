@@ -13,6 +13,7 @@
 #include "app/Shortcuts.h"
 #include "platform/Clipboard.h"
 #include "platform/FileSystem.h"
+#include "platform/Shell.h"
 #include "platform/Strings.h"
 
 #ifdef _WIN32
@@ -23,10 +24,12 @@
 #endif
 #include <filesystem>
 
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace
@@ -285,6 +288,45 @@ void TestUnixFileSystem()
     CHECK_EQ(state.settingsFile, app::JoinPath(config, "settings.ini"));
     CHECK_EQ(state.layoutFile, app::JoinPath(config, "imgui.ini"));
     CHECK_EQ(state.exeDir, tmp.path);
+}
+#endif
+
+#ifdef __linux__
+void TestLinuxExecutables()
+{
+    TempDir tmp("exec");
+    std::string error;
+    const std::string plain  = tmp.file("notes.txt", "just text");
+    const std::string folder = tmp.dir("folder");
+    // A program that leaves proof of where it ran.
+    const std::string program = tmp.file("program", "#!/bin/sh\npwd -P > ran.txt\n");
+    std::filesystem::permissions(program, std::filesystem::perms::owner_exec, std::filesystem::perm_options::add);
+
+    std::vector<platform::FileEntry> entries;
+    CHECK(platform::ListDirectory(tmp.path, entries, error));
+    int programs = 0;
+    for (const platform::FileEntry& e : entries)
+        {
+        if (e.isExecutable) ++programs;
+        if (e.path == program) CHECK(e.isExecutable);
+        // Plain text is not a program, and neither is a folder, which
+        // carries the execute bit only to say it may be entered.
+        if (e.path == plain || e.path == folder) CHECK(!e.isExecutable);
+        }
+    CHECK_EQ(programs, 1);
+
+    // Started in the folder it was given, not in this process's own.
+    CHECK(platform::RunExecutable(program, folder, error));
+    const std::string marker = app::JoinPath(folder, "ran.txt");
+    for (int i = 0; i < 400 && !platform::PathExists(marker); ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    std::string ranIn;
+    std::getline(std::ifstream(marker), ranIn);
+    CHECK_EQ(ranIn, std::filesystem::canonical(folder).string());
+
+    // Nothing to run: a message comes back, and nothing is handed to a shell.
+    CHECK(!platform::RunExecutable(plain, tmp.path, error));
+    CHECK(!error.empty());
 }
 #endif
 
@@ -880,6 +922,9 @@ int main()
     TestFormat();
 #ifndef _WIN32
     TestUnixFileSystem();
+#endif
+#ifdef __linux__
+    TestLinuxExecutables();
 #endif
     TestSettings();
     TestNavigationAndListing();

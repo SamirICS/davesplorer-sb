@@ -126,6 +126,11 @@ registration script and Explorer interceptor apply only to Windows.
   Explorer" and "Open terminal here". Each view's status bar also has New
   folder, Open terminal and Open in Windows Explorer buttons at its right
   end.
+- **Run a program** (Linux): a file the execute bit makes runnable is
+  recognised as one -- the application icon and "Application" in the Type
+  column where it has no extension -- and the item context menu's "Run"
+  starts it, in the folder being shown, with nothing passed through a shell.
+  The entry stays greyed out for anything that is not a program.
 - **Command line**: `davesplorer.exe <folder>` opens that folder;
   `davesplorer.exe <file>` opens the file's folder with the file selected.
   Explorer's own switches work too (`/select,"path"`, `/e,folder`), so a

@@ -987,6 +987,46 @@ void RegisterTests(ImGuiTestEngine* e)
         fx.state.settings.openImagesInApp = true;
     };
 
+#ifdef __linux__
+    // A program in the folder: the context menu offers Run for it and not
+    // for a text file, and running it starts it in the folder it lives in.
+    t = IM_REGISTER_TEST(e, "explorer", "run_executable_from_context_menu");
+    t->TestFunc = [](ImGuiTestContext* ctx) {
+        Fixture& fx = *g_fx;
+        GoToScratch(ctx, fx);
+        const std::string program = app::JoinPath(fx.root, "program");
+        WriteFile(program, "#!/bin/sh\n: > ran.txt\n");
+        std::filesystem::permissions(program, std::filesystem::perms::owner_exec,
+                                     std::filesystem::perm_options::add);
+        app::Refresh(fx.state.active());
+        ctx->Yield(3);
+
+        // A text file has nothing to run.
+        RefActiveView(ctx, fx);
+        ctx->ItemClick("**/###alpha.txt", ImGuiMouseButton_Right);
+        ctx->Yield(2);
+        ctx->SetRef("//$FOCUSED");
+        IM_CHECK((ctx->ItemInfo("Run").ItemFlags & ImGuiItemFlags_Disabled) != 0);
+        ctx->PopupCloseAll();
+        ctx->Yield(2);
+
+        RefActiveView(ctx, fx);
+        ctx->ItemClick("**/###program", ImGuiMouseButton_Right);
+        ctx->Yield(2);
+        ctx->SetRef("//$FOCUSED");
+        IM_CHECK((ctx->ItemInfo("Run").ItemFlags & ImGuiItemFlags_Disabled) == 0);
+        ctx->ItemClick("Run");
+        ctx->Yield(2);
+
+        // The marker is written to the working directory the program was
+        // given, which is the folder being shown.
+        const std::string marker = app::JoinPath(fx.root, "ran.txt");
+        for (int i = 0; i < 200 && !platform::PathExists(marker); ++i) ctx->SleepNoSkip(0.01f, 0.01f);
+        IM_CHECK(platform::PathExists(marker));
+        IM_CHECK(fx.ui.dialogMessage.empty());
+    };
+#endif
+
     // The thumbnails view: the same items as a grid, a real thumbnail for
     // an image (decoded on the worker thread), click selects, arrows move
     // within a row, double-click on a folder navigates, and the choice is
