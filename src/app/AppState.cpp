@@ -2,6 +2,7 @@
 #include "app/Listing.h"
 #include "app/Navigation.h"
 #include "app/PathUtil.h"
+#include "app/TreeScan.h"
 #include "platform/Clipboard.h"
 #include "platform/Strings.h"
 
@@ -123,6 +124,9 @@ void CloseTab(AppState& state, int index)
         state.quitRequested = true;
         return;
         }
+    // Nothing is left to receive what the walker is still reading, and the
+    // id will be handed to a tab opened later.
+    treescan::Cancel(state.tabs[(size_t)index].id);
     state.tabs.erase(state.tabs.begin() + index);
     if (state.activeTab >= (int)state.tabs.size()) state.activeTab = (int)state.tabs.size() - 1;
     else if (state.activeTab > index) --state.activeTab;
@@ -130,6 +134,9 @@ void CloseTab(AppState& state, int index)
 
 void TickAppState(AppState& state)
 {
+    // Folders read in the background land first, so a view that is filling
+    // in never skips a frame behind a reload.
+    PumpTreeScan(state);
     for (Tab& tab : state.tabs)
         ReloadIfNeeded(tab, state.settings);
 

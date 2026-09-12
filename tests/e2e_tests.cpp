@@ -11,6 +11,7 @@
 #include "app/Selection.h"
 #include "app/FileOps.h"
 #include "app/Shortcuts.h"
+#include "app/TreeScan.h"
 #include "platform/Clipboard.h"
 #include "platform/FileSystem.h"
 #include "platform/Strings.h"
@@ -94,6 +95,11 @@ void ResetScratch(Fixture& fx)
     WriteFile(app::JoinPath(fx.root, "gamma.png"), "not really a png");
     platform::CreateFolder(app::JoinPath(fx.root, "sub"), error);
     WriteFile(app::JoinPath(app::JoinPath(fx.root, "sub"), "inner.txt"), "inner");
+    // A second level, so an expanded view has something to reach past the
+    // first one.
+    const std::string deeper = app::JoinPath(app::JoinPath(fx.root, "sub"), "deeper");
+    platform::CreateFolder(deeper, error);
+    WriteFile(app::JoinPath(deeper, "leaf.txt"), "leaf");
 }
 
 // Each view is a window named "<folder>###view<id>"; the ID part is what
@@ -174,7 +180,7 @@ void RegisterTests(ImGuiTestEngine* e)
         ctx->ItemInputValue("**/##address", sub.c_str());
         ctx->Yield(2);
         IM_CHECK_STR_EQ(fx.state.active().path.c_str(), sub.c_str());
-        IM_CHECK_EQ(fx.state.active().entries.size(), (size_t)1);
+        IM_CHECK_EQ(fx.state.active().entries.size(), (size_t)2);   // inner.txt and deeper
         IM_CHECK(!fx.ui.view(fx.state.active().id).addressEditing);
 
         // A bad path shows the error modal and leaves the tab where it is.
@@ -561,7 +567,7 @@ void RegisterTests(ImGuiTestEngine* e)
         ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_V);
         ctx->Yield(3);
         IM_CHECK(platform::PathExists(app::JoinPath(app::JoinPath(fx.root, "sub"), "alpha.txt")));
-        IM_CHECK_EQ(fx.state.active().entries.size(), (size_t)2);
+        IM_CHECK_EQ(fx.state.active().entries.size(), (size_t)3);   // inner.txt, deeper, and the copy
     };
 
     t = IM_REGISTER_TEST(e, "explorer", "cut_paste_moves_and_empties_clipboard");
@@ -1063,6 +1069,95 @@ void RegisterTests(ImGuiTestEngine* e)
         IM_CHECK(fx.state.active().viewMode == app::ViewMode::Details);
         IM_CHECK(fx.state.settings.viewMode == app::ViewMode::Details);
     };
+
+    // The toolbar control that opens every subfolder in place: the tree
+    // fills in from a worker thread, each level nested under its own
+    // folder, and the toggle puts the plain listing back.
+    t = IM_REGISTER_TEST(e, "explorer", "expand_subfolders_in_place");
+    t->TestFunc = [](ImGuiTestContext* ctx) {
+        Fixture& fx = *g_fx;
+        GoToScratch(ctx, fx);
+        RefActiveView(ctx, fx);
+        IM_CHECK_EQ(fx.state.active().entries.size(), (size_t)4);
+
+        ctx->ItemClick("**/###ExpandTree");
+        IM_CHECK(fx.state.active().expandAll);
+        // The walk is one directory per job on another thread, so it takes
+        // as many frames as the tree is deep.
+        for (int i = 0; i < 600 && fx.state.active().scanning; ++i) ctx->Yield();
+        ctx->Yield(2);
+        app::Tab& tab = fx.state.active();
+        IM_CHECK(!tab.scanning);
+        IM_CHECK(!tab.scanTruncated);
+        IM_CHECK_EQ(tab.entries.size(), (size_t)7);   // 4 + inner.txt, deeper, leaf.txt
+
+        // Depth-first and nested: sub, then what is inside it, before the
+        // root's own files. leaf.txt hangs off deeper, not off the root.
+        auto posOf = [&](const char* name) {
+            for (size_t p = 0; p < tab.visible.size(); ++p)
+                if (tab.entries[(size_t)tab.visible[p]].name == name) return (int)p;
+            return -1;
+        };
+        auto entryOf = [&](const char* name) {
+            const int p = posOf(name);
+            return p < 0 ? -1 : tab.visible[(size_t)p];
+        };
+        IM_CHECK_EQ((int)tab.visible.size(), 7);
+        IM_CHECK_EQ(posOf("sub"), 0);
+        IM_CHECK_LT(posOf("sub"), posOf("deeper"));
+        IM_CHECK_LT(posOf("deeper"), posOf("leaf.txt"));
+        IM_CHECK_LT(posOf("leaf.txt"), posOf("inner.txt"));   // folders before files, within sub
+        IM_CHECK_LT(posOf("inner.txt"), posOf("alpha.txt"));  // all of sub before the root's files
+        IM_CHECK_EQ(tab.nodes[(size_t)entryOf("sub")].depth, 0);
+        IM_CHECK_EQ(tab.nodes[(size_t)entryOf("deeper")].depth, 1);
+        IM_CHECK_EQ(tab.nodes[(size_t)entryOf("leaf.txt")].depth, 2);
+        IM_CHECK_EQ(tab.nodes[(size_t)entryOf("leaf.txt")].parent, entryOf("deeper"));
+
+        // Searching a tree keeps the folders that lead to a match.
+        tab.filter = "leaf";
+        app::ApplyView(tab, fx.state.settings);
+        ctx->Yield();
+        IM_CHECK_EQ((int)tab.visible.size(), 3);            // sub, deeper, leaf.txt
+        tab.filter.clear();
+        app::ApplyView(tab, fx.state.settings);
+        ctx->Yield();
+
+        // A nested file renamed through the row menu stays in its own
+        // folder rather than moving up to the one being shown.
+        ctx->ItemClick("**/###sub|deeper|leaf.txt");
+        ctx->Yield();
+        std::string error;
+        IM_CHECK(app::RenameEntry(fx.state.active(), fx.state.active().focused, "renamed.txt", error));
+        ctx->Yield(3);
+        IM_CHECK(platform::PathExists(app::JoinPath(app::JoinPath(app::JoinPath(fx.root, "sub"), "deeper"), "renamed.txt")));
+        IM_CHECK(!platform::PathExists(app::JoinPath(fx.root, "renamed.txt")));
+
+        // The arrow on a row closes that folder alone: its subtree leaves
+        // the view, the rest of the listing is untouched.
+        for (int i = 0; i < 600 && fx.state.active().scanning; ++i) ctx->Yield();
+        ctx->Yield(2);
+        IM_CHECK_EQ((int)fx.state.active().visible.size(), 7);
+        ctx->ItemClick("**/###twisty_sub");
+        ctx->Yield(2);
+        IM_CHECK_EQ((int)fx.state.active().visible.size(), 4);
+        IM_CHECK(!fx.state.active().nodes[(size_t)entryOf("sub")].expanded);
+
+        // Off again: exactly the folder's own listing, nothing kept.
+        ctx->ItemClick("**/###ExpandTree");
+        ctx->Yield(3);
+        IM_CHECK(!fx.state.active().expandAll);
+        IM_CHECK_EQ(fx.state.active().entries.size(), (size_t)4);
+        IM_CHECK_EQ(fx.state.active().visible.size(), (size_t)4);
+
+        // Expansion belongs to the folder it was asked for.
+        ctx->ItemClick("**/###ExpandTree");
+        for (int i = 0; i < 600 && fx.state.active().scanning; ++i) ctx->Yield();
+        ctx->ItemDoubleClick("**/###sub");
+        ctx->Yield(3);
+        IM_CHECK_STR_EQ(app::PathName(fx.state.active().path).c_str(), "sub");
+        IM_CHECK(!fx.state.active().expandAll);
+        IM_CHECK_EQ(fx.state.active().entries.size(), (size_t)2);
+    };
 }
 
 } // namespace
@@ -1148,6 +1243,7 @@ int main(int argc, char** argv)
         std::printf("%-8s %s/%s\n", status, test->Category, test->Name);
         }
 
+    app::treescan::Shutdown();
     ui::thumbnails::Shutdown();
     ui::textures::ReleaseAll();
     ImGuiTestEngine_Stop(engine);

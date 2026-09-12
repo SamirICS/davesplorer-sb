@@ -139,7 +139,7 @@ void DrawThumbnailGrid(app::AppState& state, UiState& ui, int tabIndex)
                 // file name, which is what the tests refer to); the
                 // picture and name are drawn over it.
                 const ImVec2 cellMin = ImGui::GetCursorScreenPos();
-                const std::string label = "###" + e.name;
+                const std::string label = "###" + RowId(tab, entryIndex);
                 const bool clicked = ImGui::Selectable(label.c_str(), isSelected,
                     ImGuiSelectableFlags_AllowDoubleClick | ImGuiSelectableFlags_AllowOverlap, cell);
                 const bool hoveredNow = ImGui::IsItemHovered();
@@ -181,8 +181,12 @@ void DrawThumbnailGrid(app::AppState& state, UiState& ui, int tabIndex)
                                 WithAlpha(tint, alpha), icon);
                     }
 
+                // A cell has no room for indentation, so a name from an
+                // expanded subfolder says where it came from instead.
+                const bool nested = entryIndex < (int)tab.nodes.size() && tab.nodes[(size_t)entryIndex].parent >= 0;
+                const std::string cellName = nested ? RowId(tab, entryIndex) : ShownName(tab, e, settings);
                 DrawCellName(dl, ImVec2(cellMin.x + pad, boxMin.y + thumb + pad * 0.5f), cell.x - pad * 2.0f,
-                             ShownName(tab, e, settings), ghost ? palette.textFaint : palette.text);
+                             cellName, ghost ? palette.textFaint : palette.text);
 
                 if (hoveredNow) clicks.itemHovered = true;
                 if (clicked)

@@ -52,12 +52,19 @@ struct ListClicks
     int  pendingClick = -1;      // visible position
     bool pendingDouble = false;
     int  pendingContext = -1;    // visible position
+    int  pendingToggle = -1;     // entry index whose twisty was hit
 };
 void ResolveListClicks(app::AppState& state, UiState& ui, int tabIndex, const ListClicks& clicks);
 void DrawListPopups(app::AppState& state, UiState& ui, int tabIndex);
 
 // The name as shown: without its extension when that option is off.
 std::string ShownName(const app::Tab& tab, const platform::FileEntry& e, const app::Settings& settings);
+
+// What an item is called in ImGui's id stack: the bare name for a row of
+// this folder, and the path below it with separators as '|' for one that
+// came out of an expanded subfolder -- unique wherever it sits, and still
+// nameable in a test's item path, where '/' would read as a separator.
+std::string RowId(const app::Tab& tab, int entryIndex);
 
 // The grid layout.
 void DrawThumbnailGrid(app::AppState& state, UiState& ui, int tabIndex);

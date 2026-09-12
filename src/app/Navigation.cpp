@@ -1,4 +1,5 @@
 #include "app/Navigation.h"
+#include "app/Listing.h"
 #include "app/PathUtil.h"
 #include "platform/FileSystem.h"
 
@@ -14,6 +15,10 @@ void SetLocation(Tab& tab, const std::string& path)
     tab.filter.clear();
     tab.focused = -1;
     tab.anchor = -1;
+    // Expansion belongs to the folder it was asked for: going somewhere else
+    // must not start a recursive walk of wherever the user landed.
+    tab.expandAll = false;
+    ClearTree(tab);
     tab.needsReload = true;
 }
 

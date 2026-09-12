@@ -271,6 +271,9 @@ void DrawMenuBar(app::AppState& state, UiState& ui)
             ImGui::EndMenu();
             }
         ImGui::Separator();
+        if (ImGui::MenuItem("Expand all subfolders", "Ctrl+Shift+E", tab.expandAll, !tab.path.empty()))
+            app::SetExpandAll(tab, s, !tab.expandAll);
+        ImGui::Separator();
         ImGui::MenuItem("Navigation pane", nullptr, &s.showNavPane);
         ImGui::MenuItem("Shortcut bar", nullptr, &s.showShortcutBar);
         ImGui::MenuItem("Status bar", nullptr, &s.showStatusBar);
@@ -382,6 +385,7 @@ void HandleGlobalShortcuts(app::AppState& state, UiState& ui)
         }
     if (chord(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_RightArrow)) RequestSplitView(ui, tab.id, ImGuiDir_Right);
     if (chord(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_DownArrow)) RequestSplitView(ui, tab.id, ImGuiDir_Down);
+    if (chord(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_E)) app::SetExpandAll(tab, state.settings, !tab.expandAll);
     if (chord(ImGuiMod_Alt | ImGuiKey_LeftArrow)) app::GoBack(tab);
     if (chord(ImGuiMod_Alt | ImGuiKey_RightArrow)) app::GoForward(tab);
     if (chord(ImGuiMod_Alt | ImGuiKey_UpArrow)) app::GoUp(tab);

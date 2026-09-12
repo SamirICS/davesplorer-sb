@@ -28,11 +28,17 @@ std::string PathKey(const std::string& path)
 #endif
 }
 
+// Only what sits in tab.path itself: an expanded tree carries names from
+// subfolders, and a file called the same thing two levels down says nothing
+// about what this folder can hold.
 bool NameExists(const Tab& tab, const std::string& name)
 {
     const std::string lower = PathKey(name);
-    for (const platform::FileEntry& e : tab.entries)
-        if (PathKey(e.name) == lower) return true;
+    for (size_t i = 0; i < tab.entries.size(); ++i)
+        {
+        if (i < tab.nodes.size() && tab.nodes[i].parent >= 0) continue;
+        if (PathKey(tab.entries[i].name) == lower) return true;
+        }
     return false;
 }
 
@@ -99,7 +105,9 @@ bool RenameEntry(Tab& tab, int entryIndex, const std::string& newName, std::stri
     if (!IsValidFileName(newName, error)) return false;
     const platform::FileEntry& e = tab.entries[(size_t)entryIndex];
     if (newName == e.name) return true;
-    if (!platform::RenamePath(e.path, JoinPath(tab.path, newName), error)) return false;
+    // Its own folder, which is tab.path for an ordinary row but not for one
+    // that came out of an expanded subfolder -- renaming must not move it.
+    if (!platform::RenamePath(e.path, JoinPath(ParentPath(e.path), newName), error)) return false;
     Refresh(tab);
     return true;
 }

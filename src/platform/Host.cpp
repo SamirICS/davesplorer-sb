@@ -4,6 +4,7 @@
 #include "platform/Strings.h"
 
 #include "app/AppState.h"
+#include "app/TreeScan.h"
 #include "ui/Fonts.h"
 #include "ui/MainWindow.h"
 #include "ui/Textures.h"
@@ -242,6 +243,7 @@ int RunApplication(int argc, char** argv)
         SDL_GetWindowSize(window, &state.settings.windowWidth, &state.settings.windowHeight);
     app::SaveAppState(state);
 
+    app::treescan::Shutdown();           // joins the folder-walking thread
     ui::thumbnails::Shutdown();          // joins the decoder thread first
     ImGui_ImplSDLRenderer3_Shutdown();   // destroys the GPU side of every texture, ours included
     ui::textures::ReleaseAll();

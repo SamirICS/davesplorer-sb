@@ -139,6 +139,7 @@ add_library(dsp_app STATIC
     src/app/Format.cpp
     src/app/PathUtil.cpp
     src/app/Listing.cpp
+    src/app/TreeScan.cpp
     src/app/Navigation.cpp
     src/app/Selection.cpp
     src/app/Settings.cpp

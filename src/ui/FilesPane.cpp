@@ -239,8 +239,9 @@ bool DrawToolbar(app::AppState& state, UiState& ui, int tabIndex)
     // them off the edge.
     const ImGuiStyle& style = ImGui::GetStyle();
     auto buttonW = [&](const char* icon) { return ImGui::CalcTextSize(icon).x + style.FramePadding.x * 2.0f; };
-    const float cluster = buttonW(ICON_MD_GRID_VIEW) + buttonW(ICON_MD_ADD) + buttonW(ICON_MD_VERTICAL_SPLIT) +
-                          buttonW(ICON_MD_HORIZONTAL_SPLIT) + style.ItemSpacing.x * 4.0f;
+    const float cluster = buttonW(ICON_MD_ACCOUNT_TREE) + buttonW(ICON_MD_GRID_VIEW) + buttonW(ICON_MD_ADD) +
+                          buttonW(ICON_MD_VERTICAL_SPLIT) + buttonW(ICON_MD_HORIZONTAL_SPLIT) +
+                          style.ItemSpacing.x * 5.0f;
     const float avail = ImGui::GetContentRegionAvail().x - cluster - style.ItemSpacing.x;
     const float searchWidth = std::clamp(avail * 0.25f, 90.0f, 320.0f);
     const float addressWidth = std::max(avail - searchWidth, 60.0f);
@@ -260,6 +261,14 @@ bool DrawToolbar(app::AppState& state, UiState& ui, int tabIndex)
         tab.filter.clear();
         app::ApplyView(tab, state.settings);
         }
+    ImGui::SameLine();
+
+    // Everything below this folder, shown in place. Off in This PC, which
+    // lists drives rather than a folder to walk.
+    if (IconButton("ExpandTree", tab.expandAll ? ICON_MD_UNFOLD_LESS : ICON_MD_ACCOUNT_TREE,
+                   tab.expandAll ? "Collapse subfolders (Ctrl+Shift+E)" : "Expand all subfolders (Ctrl+Shift+E)",
+                   !tab.path.empty()))
+        app::SetExpandAll(tab, state.settings, !tab.expandAll);
     ImGui::SameLine();
 
     // The toggle sets the default for new views too, as Explorer's view
@@ -446,7 +455,17 @@ void ResolveListClicks(app::AppState& state, UiState& ui, int tabIndex, const Li
     app::Tab& tab = state.tabs[(size_t)tabIndex];
     ViewUi& v = ui.view(tab.id);
     ImGuiIO& io = ImGui::GetIO();
-    if (clicks.pendingContext >= 0)
+    if (clicks.pendingToggle >= 0)
+        {
+        // The arrow only opens and closes; it never moves the selection,
+        // which is why it is resolved before anything else.
+        const int entryIndex = clicks.pendingToggle;
+        if (entryIndex < (int)tab.nodes.size() && tab.nodes[(size_t)entryIndex].expanded)
+            app::CollapseEntry(tab, state.settings, entryIndex);
+        else
+            app::ExpandEntry(tab, state.settings, entryIndex);
+        }
+    else if (clicks.pendingContext >= 0)
         {
         const int entryIndex = tab.visible[(size_t)clicks.pendingContext];
         if (!(entryIndex < (int)tab.selected.size() && tab.selected[(size_t)entryIndex]))
@@ -503,6 +522,17 @@ std::string ShownName(const app::Tab& tab, const platform::FileEntry& e, const a
     if (!settings.showExtensions && !e.isDirectory && !e.extension.empty() && !tab.path.empty())
         return e.name.substr(0, e.name.size() - e.extension.size() - 1);
     return e.name;
+}
+
+std::string RowId(const app::Tab& tab, int entryIndex)
+{
+    if (entryIndex < 0 || entryIndex >= (int)tab.entries.size()) return std::string();
+    const platform::FileEntry& e = tab.entries[(size_t)entryIndex];
+    if (entryIndex >= (int)tab.nodes.size() || tab.nodes[(size_t)entryIndex].parent < 0) return e.name;
+    std::string id = e.path.size() > tab.path.size() + 1 ? e.path.substr(tab.path.size() + 1) : e.name;
+    for (char& c : id)
+        if (c == '/' || c == '\\') c = '|';
+    return id;
 }
 
 namespace
@@ -655,7 +685,7 @@ void DrawFileTable(app::AppState& state, UiState& ui, int tabIndex)
             // so the icon can be drawn in its own tint and the name in text
             // color on top of it. The ID is the file name, which is what the
             // tests refer to.
-            const std::string label = "###" + e.name;
+            const std::string label = "###" + RowId(tab, entryIndex);
             const ImVec2 rowStart = ImGui::GetCursorScreenPos();
             const bool clicked = ImGui::Selectable(label.c_str(), isSelected,
                 ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick | ImGuiSelectableFlags_AllowOverlap);
@@ -669,13 +699,25 @@ void DrawFileTable(app::AppState& state, UiState& ui, int tabIndex)
             if (!tab.path.empty()) FileDragSource(state, ui, tab, entryIndex);
             if (e.isDirectory && FileDropTarget(state, ui, e.path)) ui.rowDropHovered = true;
 
+            // A row from an expanded subfolder steps in, so the shape of
+            // the tree is visible at a glance. Every folder in a tree gets
+            // an arrow, top-level ones included, so one can be opened on
+            // its own without expanding everything.
+            const app::TreeNode node = entryIndex < (int)tab.nodes.size() ? tab.nodes[(size_t)entryIndex] : app::TreeNode{};
+            const bool inTree = tab.expandAll || node.parent >= 0 || node.loaded || node.pending;
+            const float twistyW = ImGui::CalcTextSize(ICON_MD_CHEVRON_RIGHT).x + ImGui::GetStyle().ItemInnerSpacing.x;
+            const float indent = (float)node.depth * ImGui::GetFontSize() + (inTree ? twistyW : 0.0f);
+
             // Cut items are ghosted until they are pasted, as in Explorer.
             const bool isCut = state.clipboard.cut && std::find(state.clipboard.paths.begin(), state.clipboard.paths.end(), e.path) != state.clipboard.paths.end();
             const char* icon = IconForEntry(e);
             const float iconW = ImGui::CalcTextSize(icon).x;
             ImDrawList* dl = ImGui::GetWindowDrawList();
-            dl->AddText(rowStart, isCut ? WithAlpha(IconTintForEntry(e), 110) : IconTintForEntry(e), icon);
-            dl->AddText(ImVec2(rowStart.x + iconW + ImGui::GetStyle().ItemInnerSpacing.x, rowStart.y),
+            if (inTree && e.isDirectory && !e.isReparsePoint)
+                dl->AddText(ImVec2(rowStart.x + indent - twistyW, rowStart.y), CurrentPalette().textFaint,
+                            node.expanded ? ICON_MD_EXPAND_MORE : ICON_MD_CHEVRON_RIGHT);
+            dl->AddText(ImVec2(rowStart.x + indent, rowStart.y), isCut ? WithAlpha(IconTintForEntry(e), 110) : IconTintForEntry(e), icon);
+            dl->AddText(ImVec2(rowStart.x + indent + iconW + ImGui::GetStyle().ItemInnerSpacing.x, rowStart.y),
                         (e.isHidden || isCut) ? CurrentPalette().textFaint : CurrentPalette().text, shownName.c_str());
 
             if (rowHoveredNow) clicks.itemHovered = true;
@@ -683,6 +725,18 @@ void DrawFileTable(app::AppState& state, UiState& ui, int tabIndex)
                 {
                 clicks.pendingClick = pos;
                 clicks.pendingDouble = ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
+                }
+            // The arrow is painted over the row rather than being part of
+            // it, so it gets its own button on top: the selectable allows
+            // overlap, which hands a click here to this instead of to the
+            // row, and opening a folder never moves the selection.
+            if (inTree && e.isDirectory && !e.isReparsePoint)
+                {
+                ImGui::SetCursorScreenPos(ImVec2(rowStart.x + indent - twistyW, rowStart.y));
+                const std::string twistyId = "###twisty_" + RowId(tab, entryIndex);
+                if (ImGui::InvisibleButton(twistyId.c_str(), ImVec2(twistyW, ImGui::GetTextLineHeight())))
+                    clicks.pendingToggle = entryIndex;
+                if (ImGui::IsItemHovered()) clicks.itemHovered = true;
                 }
             if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) clicks.pendingContext = pos;
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_DelayNormal) && e.isReparsePoint)
@@ -726,6 +780,10 @@ void DrawStatusBar(app::AppState& state, UiState& ui, app::Tab& tab)
         }
     if (!state.clipboard.paths.empty())
         text += "    " + std::to_string(state.clipboard.paths.size()) + (state.clipboard.cut ? " cut" : " copied");
+    // An expansion fills in over several frames, so say so rather than let
+    // the count climb with no explanation.
+    if (tab.scanning) text += "    scanning subfolders...";
+    if (tab.scanTruncated) text += "    stopped at " + std::to_string(app::kMaxTreeEntries) + " items";
     ImGui::Separator();
     ImGui::AlignTextToFramePadding();
     MutedText(text.c_str());

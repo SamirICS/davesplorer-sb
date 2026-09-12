@@ -11,6 +11,7 @@
 #include "app/Selection.h"
 #include "app/Settings.h"
 #include "app/Shortcuts.h"
+#include "app/TreeScan.h"
 #include "platform/Clipboard.h"
 #include "platform/FileSystem.h"
 #include "platform/Strings.h"
@@ -24,9 +25,11 @@
 #include <filesystem>
 
 #include <cstdio>
+#include <chrono>
 #include <cstring>
 #include <fstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace
@@ -868,6 +871,115 @@ void TestAppState()
     CHECK_EQ(state.active().path, "");
 }
 
+// Subfolders opened in place: the walk runs on a worker thread, so the
+// tab is ticked until it settles, exactly as a frame would.
+void PumpUntilQuiet(app::AppState& state)
+{
+    for (int i = 0; i < 4000; ++i)
+        {
+        app::TickAppState(state);
+        bool busy = false;
+        for (const app::Tab& t : state.tabs) busy = busy || t.scanning;
+        if (!busy) return;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    CHECK(false);   // the walk never finished
+}
+
+void TestExpandedTree()
+{
+    TempDir tmp("tree");
+    tmp.file("alpha.txt", "aaa");
+    const std::string sub = tmp.dir("sub");
+    std::string error;
+    platform::CreateFolder(app::JoinPath(sub, "deeper"), error);
+    std::ofstream(std::filesystem::path(reinterpret_cast<const char8_t*>(app::JoinPath(sub, "inner.txt").c_str()))) << "i";
+    std::ofstream(std::filesystem::path(reinterpret_cast<const char8_t*>(
+        app::JoinPath(app::JoinPath(sub, "deeper"), "leaf.txt").c_str()))) << "l";
+
+    app::AppState state;
+    app::InitAppState(state, tmp.path);
+    state.tabs.clear();
+    app::OpenTab(state, tmp.path);
+    app::Tab& tab = state.active();
+    app::TickAppState(state);
+    CHECK_EQ(tab.entries.size(), (size_t)2);
+    CHECK(!tab.expandAll);
+
+    app::SetExpandAll(tab, state.settings, true);
+    PumpUntilQuiet(state);
+    CHECK(tab.expandAll);
+    CHECK(!tab.scanTruncated);
+    CHECK_EQ(tab.entries.size(), (size_t)5);   // alpha.txt, sub, inner.txt, deeper, leaf.txt
+    CHECK_EQ(tab.visible.size(), (size_t)5);
+
+    auto pos = [&](const char* name) {
+        for (size_t p = 0; p < tab.visible.size(); ++p)
+            if (tab.entries[(size_t)tab.visible[p]].name == name) return (int)p;
+        return -1;
+    };
+    auto entry = [&](const char* name) {
+        const int p = pos(name);
+        return p < 0 ? -1 : tab.visible[(size_t)p];
+    };
+    // Depth first, siblings sorted among themselves: everything under sub
+    // comes before the root's own file, and leaf.txt sits under deeper.
+    CHECK_EQ(pos("sub"), 0);
+    CHECK_EQ(pos("deeper"), 1);
+    CHECK_EQ(pos("leaf.txt"), 2);
+    CHECK_EQ(pos("inner.txt"), 3);
+    CHECK_EQ(pos("alpha.txt"), 4);
+    CHECK_EQ(tab.nodes[(size_t)entry("deeper")].depth, 1);
+    CHECK_EQ(tab.nodes[(size_t)entry("leaf.txt")].depth, 2);
+    CHECK_EQ(tab.nodes[(size_t)entry("leaf.txt")].parent, entry("deeper"));
+
+    // A search reaches into the tree and keeps the folders that lead to a
+    // match, so the answer can be seen where it lives.
+    tab.filter = "leaf";
+    app::ApplyView(tab, state.settings);
+    CHECK_EQ(tab.visible.size(), (size_t)3);
+    CHECK_EQ(tab.entries[(size_t)tab.visible[0]].name, "sub");
+    CHECK_EQ(tab.entries[(size_t)tab.visible[2]].name, "leaf.txt");
+    tab.filter.clear();
+    app::ApplyView(tab, state.settings);
+
+    // Closing one folder takes its whole subtree out of view and drops the
+    // selection inside it; re-opening is instant, nothing is re-read.
+    const int subIndex = entry("sub");
+    tab.selected[(size_t)entry("leaf.txt")] = 1;
+    tab.focused = entry("leaf.txt");
+    app::CollapseEntry(tab, state.settings, subIndex);
+    CHECK_EQ(tab.visible.size(), (size_t)2);
+    CHECK_EQ(app::SelectedCount(tab), 0);
+    CHECK_EQ(tab.focused, subIndex);
+    CHECK_EQ(tab.entries.size(), (size_t)5);   // kept, just not shown
+    app::ExpandEntry(tab, state.settings, subIndex);
+    CHECK_EQ(tab.visible.size(), (size_t)5);
+    CHECK_EQ(tab.entries.size(), (size_t)5);
+
+    // A name that only exists in a subfolder says nothing about what this
+    // folder can hold.
+    CHECK_EQ(app::UniqueNewName(tab, "leaf.txt"), "leaf.txt");
+    CHECK_EQ(app::UniqueNewName(tab, "alpha.txt"), "alpha (2).txt");
+
+    // Off again: exactly the folder's own listing.
+    app::SetExpandAll(tab, state.settings, false);
+    CHECK(!tab.expandAll);
+    CHECK_EQ(tab.entries.size(), (size_t)2);
+    CHECK_EQ(tab.visible.size(), (size_t)2);
+    CHECK_EQ(tab.nodes.size(), (size_t)2);
+
+    // Expansion belongs to the folder it was asked for: navigating away
+    // never starts a walk of wherever the user landed.
+    app::SetExpandAll(tab, state.settings, true);
+    PumpUntilQuiet(state);
+    CHECK_EQ(tab.entries.size(), (size_t)5);
+    CHECK(app::NavigateTo(tab, sub, error));
+    app::TickAppState(state);
+    CHECK(!tab.expandAll);
+    CHECK_EQ(tab.entries.size(), (size_t)2);   // inner.txt and deeper, nothing below
+}
+
 } // namespace
 
 int main()
@@ -889,6 +1001,8 @@ int main()
     TestShortcuts();
     TestImage();
     TestAppState();
+    TestExpandedTree();
+    app::treescan::Shutdown();   // joins the folder-walking thread
     std::printf("%d checks, %d failures\n", g_checks, g_failures);
     return g_failures;
 }
