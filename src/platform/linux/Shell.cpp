@@ -57,4 +57,10 @@ bool OpenTerminalAt(const std::string& dir, std::string& error)
     error = "No supported terminal emulator was found.";
     return false;
 }
+// No thumbnailer is wired up here yet; the grid shows the file's icon.
+bool ShellThumbnail(const std::string&, int, int&, int&, std::vector<uint8_t>&, std::string& error)
+{
+    error = "Thumbnails of this kind of file are not available on this platform.";
+    return false;
+}
 }

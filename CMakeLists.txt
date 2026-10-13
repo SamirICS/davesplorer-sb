@@ -154,10 +154,11 @@ add_library(dsp_app STATIC
 target_include_directories(dsp_app PUBLIC src)
 target_link_libraries(dsp_app PUBLIC dsp_strict stb_image)
 if(WIN32)
-    target_link_libraries(dsp_app PUBLIC shell32 ole32 shlwapi)
+    target_link_libraries(dsp_app PUBLIC shell32 ole32 shlwapi gdi32)
 elseif(APPLE)
     target_link_libraries(dsp_app PUBLIC SDL3::SDL3-static
-        "-framework Foundation" "-framework AppKit" "-framework UniformTypeIdentifiers")
+        "-framework Foundation" "-framework AppKit" "-framework UniformTypeIdentifiers"
+        "-framework QuickLookThumbnailing")
     target_compile_options(dsp_strict INTERFACE -Wall -Wextra -Wpedantic -Werror)
 else()
     target_link_libraries(dsp_app PUBLIC PkgConfig::GIO SDL3::SDL3-static)

@@ -17,6 +17,14 @@ namespace app
 // FileEntry carries it.
 bool IsViewableImage(std::string_view extension);
 
+// Video files, which the thumbnail grid shows a frame of when the platform
+// can make one.
+bool IsVideo(std::string_view extension);
+
+// Whether the thumbnail grid tries for a picture of the file rather than
+// its icon.
+bool HasThumbnail(std::string_view extension);
+
 struct DecodedImage
 {
     int  width = 0;                  // of the pixels below
@@ -31,6 +39,11 @@ struct DecodedImage
 // integer factor, so a huge photo still fits in one GPU texture; width and
 // height report the reduced size. Returns false with a reason on failure.
 bool DecodeImageFile(const std::string& path, int maxDim, DecodedImage& out, std::string& error);
+
+// A picture of the file no longer than maxDim on its longest side: an
+// image decoded by DecodeImageFile, anything else (a video) through the
+// platform's own thumbnailer. Slow; meant for a worker thread.
+bool DecodeThumbnail(const std::string& path, int maxDim, DecodedImage& out, std::string& error);
 
 // The viewable images in the folder holding `path`, in the list's natural
 // name order, so Previous/Next step through them the way Explorer's viewer

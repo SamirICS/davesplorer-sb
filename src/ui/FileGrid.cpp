@@ -1,7 +1,7 @@
-// The thumbnail grid: a folder's contents as pictures (image files) and
-// big icons (everything else) with the name underneath, Explorer's icon
-// views. Same items, selection, lasso, drag and menus as the details
-// table; only the layout differs.
+// The thumbnail grid: a folder's contents as pictures (image and video
+// files) and big icons (everything else) with the name underneath,
+// Explorer's icon views. Same items, selection, lasso, drag and menus as
+// the details table; only the layout differs.
 #include "ui/FileList.h"
 #include "ui/DragDrop.h"
 #include "ui/Fonts.h"
@@ -157,12 +157,12 @@ void DrawThumbnailGrid(app::AppState& state, UiState& ui, int tabIndex)
                 const bool ghost = e.isHidden || isCut;
                 const int alpha = ghost ? 110 : 255;
 
-                // The picture box: a thumbnail for an image, otherwise the
-                // entry's icon drawn large.
+                // The picture box: a thumbnail for an image or video,
+                // otherwise the entry's icon drawn large.
                 const ImVec2 boxMin(cellMin.x + pad, cellMin.y + pad);
                 const ImVec2 boxCenter(boxMin.x + thumb * 0.5f, boxMin.y + thumb * 0.5f);
-                const bool isImage = !e.isDirectory && app::IsViewableImage(e.extension);
-                const thumbnails::Thumb* t = isImage ? thumbnails::Get(e.path, e.modified) : nullptr;
+                const bool wantsThumb = !e.isDirectory && app::HasThumbnail(e.extension);
+                const thumbnails::Thumb* t = wantsThumb ? thumbnails::Get(e.path, e.modified) : nullptr;
                 if (t && t->texture)
                     {
                     // Fit the file's real size into the box, shrinking but
@@ -177,9 +177,12 @@ void DrawThumbnailGrid(app::AppState& state, UiState& ui, int tabIndex)
                     }
                 else
                     {
-                    const char* icon = (t && t->failed) ? ICON_MD_BROKEN_IMAGE : IconForEntry(e);
+                    // An image that will not decode is broken; a video the
+                    // platform cannot thumbnail is just a video.
+                    const bool broken = t && t->failed && app::IsViewableImage(e.extension);
+                    const char* icon = broken ? ICON_MD_BROKEN_IMAGE : IconForEntry(e);
                     ImU32 tint = IconTintForEntry(e);
-                    if (isImage && !t) tint = WithAlpha(tint, 90);   // still decoding
+                    if (wantsThumb && !t) tint = WithAlpha(tint, 90);   // still decoding
                     const float glyph = thumb * 0.7f;
                     const ImVec2 gs = iconFont->CalcTextSizeA(glyph, FLT_MAX, 0.0f, icon);
                     dl->AddText(iconFont, glyph, ImVec2(boxCenter.x - gs.x * 0.5f, boxCenter.y - gs.y * 0.5f),

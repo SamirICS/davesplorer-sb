@@ -78,7 +78,7 @@ void WorkerMain()
         Result result;
         result.key = job.key;
         std::string error;
-        result.ok = app::DecodeImageFile(job.path, kDim, result.image, error);
+        result.ok = app::DecodeThumbnail(job.path, kDim, result.image, error);
         std::lock_guard<std::mutex> lock(g_mutex);
         g_done.push_back(std::move(result));
         }
