@@ -2,10 +2,19 @@
 // Explorer, opening a terminal.
 #pragma once
 
+#include <cstdint>
 #include <string>
+#include <vector>
 
 namespace platform
 {
+
+// The thumbnail the desktop itself would show for a file (a frame of a
+// video, say), fitted within maxDim x maxDim: 8-bit RGBA, premultiplied
+// alpha, rows top to bottom. Fails rather than falling back to the file
+// type's icon. Blocks; meant for a worker thread.
+bool ShellThumbnail(const std::string& path, int maxDim, int& width, int& height,
+                    std::vector<uint8_t>& rgba, std::string& error);
 
 // Opens a file with its associated program, or a folder in Explorer.
 bool OpenWithShell(const std::string& path, std::string& error);

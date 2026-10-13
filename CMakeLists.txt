@@ -154,10 +154,11 @@ add_library(dsp_app STATIC
 target_include_directories(dsp_app PUBLIC src)
 target_link_libraries(dsp_app PUBLIC dsp_strict stb_image)
 if(WIN32)
-    target_link_libraries(dsp_app PUBLIC shell32 ole32 shlwapi)
+    target_link_libraries(dsp_app PUBLIC shell32 ole32 shlwapi gdi32)
 elseif(APPLE)
     target_link_libraries(dsp_app PUBLIC SDL3::SDL3-static
-        "-framework Foundation" "-framework AppKit" "-framework UniformTypeIdentifiers")
+        "-framework Foundation" "-framework AppKit" "-framework UniformTypeIdentifiers"
+        "-framework QuickLookThumbnailing")
     target_compile_options(dsp_strict INTERFACE -Wall -Wextra -Wpedantic -Werror)
 else()
     target_link_libraries(dsp_app PUBLIC PkgConfig::GIO SDL3::SDL3-static)
@@ -183,7 +184,11 @@ target_link_libraries(dsp_ui PUBLIC dsp_app imgui)
 # ---------------------------------------------------------------------------
 # The application.
 # ---------------------------------------------------------------------------
-add_executable(davesplorer WIN32
+# MACOSX_BUNDLE is what gives the app an icon, a name in the Dock and the
+# menu bar, and a Finder identity: a bare executable has no bundle for
+# LaunchServices to read those from, and shows up borrowing the icon of
+# whatever launched it.
+add_executable(davesplorer WIN32 MACOSX_BUNDLE
     src/main.cpp
     src/platform/Host.cpp)
 if(WIN32)
@@ -191,10 +196,46 @@ if(WIN32)
 endif()
 target_link_libraries(davesplorer PRIVATE dsp_ui imgui_backends imgui_test_engine SDL3::SDL3-static)
 set_target_properties(davesplorer PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${DSP_STAGE_DIR}")
+
+if(APPLE)
+    # The .icns is built from the same 256px PNG the other platforms use, so
+    # the icon has one source; sips and iconutil ship with macOS. 256px is
+    # the ceiling that PNG can fill, which covers the Dock at Retina.
+    set(DSP_ICONSET "${CMAKE_BINARY_DIR}/davesplorer.iconset")
+    set(DSP_ICNS "${CMAKE_BINARY_DIR}/davesplorer.icns")
+    set(DSP_ICON_PNG "${CMAKE_SOURCE_DIR}/assets/icon/davesplorer.png")
+    add_custom_command(OUTPUT "${DSP_ICNS}"
+        COMMAND ${CMAKE_COMMAND} -E rm -rf "${DSP_ICONSET}"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${DSP_ICONSET}"
+        COMMAND sips -z 16 16    "${DSP_ICON_PNG}" --out "${DSP_ICONSET}/icon_16x16.png" > /dev/null
+        COMMAND sips -z 32 32    "${DSP_ICON_PNG}" --out "${DSP_ICONSET}/icon_16x16@2x.png" > /dev/null
+        COMMAND sips -z 32 32    "${DSP_ICON_PNG}" --out "${DSP_ICONSET}/icon_32x32.png" > /dev/null
+        COMMAND sips -z 64 64    "${DSP_ICON_PNG}" --out "${DSP_ICONSET}/icon_32x32@2x.png" > /dev/null
+        COMMAND sips -z 128 128  "${DSP_ICON_PNG}" --out "${DSP_ICONSET}/icon_128x128.png" > /dev/null
+        COMMAND ${CMAKE_COMMAND} -E copy "${DSP_ICON_PNG}" "${DSP_ICONSET}/icon_128x128@2x.png"
+        COMMAND ${CMAKE_COMMAND} -E copy "${DSP_ICON_PNG}" "${DSP_ICONSET}/icon_256x256.png"
+        COMMAND iconutil -c icns -o "${DSP_ICNS}" "${DSP_ICONSET}"
+        DEPENDS "${DSP_ICON_PNG}"
+        COMMENT "Building davesplorer.icns from the app icon")
+    target_sources(davesplorer PRIVATE "${DSP_ICNS}")
+    set_source_files_properties("${DSP_ICNS}" PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+    set_target_properties(davesplorer PROPERTIES
+        MACOSX_BUNDLE_BUNDLE_NAME "Davesplorer"
+        MACOSX_BUNDLE_GUI_IDENTIFIER "com.davesplorer.Davesplorer"
+        MACOSX_BUNDLE_BUNDLE_VERSION "0.1.0"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "0.1.0"
+        MACOSX_BUNDLE_COPYRIGHT "MIT"
+        MACOSX_BUNDLE_ICON_FILE "davesplorer"
+        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_SOURCE_DIR}/cmake/Info.plist.in")
+    set(DSP_ASSET_DEST "$<TARGET_BUNDLE_CONTENT_DIR:davesplorer>/Resources/assets")
+else()
+    set(DSP_ASSET_DEST "${DSP_STAGE_DIR}/assets")
+endif()
+
 add_custom_command(TARGET davesplorer POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
-            "${CMAKE_SOURCE_DIR}/assets" "${DSP_STAGE_DIR}/assets"
-    COMMENT "Staging assets beside davesplorer")
+            "${CMAKE_SOURCE_DIR}/assets" "${DSP_ASSET_DEST}"
+    COMMENT "Staging assets for davesplorer")
 
 # The Explorer interceptor: a standalone, dependency-free Win32 exe that
 # Windows runs in place of explorer.exe when register.ps1 -Interceptor is

@@ -29,15 +29,31 @@ void DrawBackgroundContextMenu(app::AppState& state, UiState& ui, app::Tab& tab)
 // inside the scrolling window.
 void NoticeNewListing(app::Tab& tab, ViewUi& v);
 
+// A press in empty space: a lasso pending until the mouse moves.
+void BeginLassoPress(app::Tab& tab, ViewUi& v);
+
 // The rubber-band rectangle for this frame (only meaningful while pending
 // or active), promoting a pending press to an active lasso once the mouse
-// has moved.
-ImRect UpdateLasso(app::Tab& tab, ViewUi& v);
+// has moved. Call inside the scrolling window: the band's anchor stays on
+// the content it was pressed on, and while the mouse is held above or
+// below the list (topInset skips a frozen header) the list scrolls.
+ImRect UpdateLasso(UiState& ui, app::Tab& tab, ViewUi& v, float topInset);
 
-// Selects or deselects one item by whether the lasso touches its rect. A
-// details row reads as full-width, so it tests vertical overlap only; a
-// grid cell tests the whole rectangle.
-void ApplyLassoToItem(app::Tab& tab, ViewUi& v, int entryIndex, const ImRect& lasso, const ImRect& item, bool verticalOnly);
+// Where every item sits this frame, drawn or scrolled out of view: item n
+// is at column n % columns, row n / columns, its rect `size` from
+// origin + (column, row) * pitch, all in screen space.
+struct LassoLayout
+{
+    ImVec2 origin;
+    ImVec2 pitch;
+    ImVec2 size;
+    int    columns = 1;
+    bool   verticalOnly = false;   // a details row reads as full-width: test vertical overlap only
+};
+
+// Selects exactly the items the lasso touches (plus, in additive mode, the
+// pre-lasso selection), including those outside the visible part.
+void ApplyLasso(app::Tab& tab, ViewUi& v, const ImRect& lasso, const LassoLayout& layout);
 
 // Draws the band clipped to the current window, and ends the lasso on
 // release (a press that never moved was a plain click: it clears).

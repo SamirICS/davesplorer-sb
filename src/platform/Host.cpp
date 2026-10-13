@@ -145,8 +145,9 @@ int RunApplication(int argc, char** argv)
         SDL_Event event;
         // Block until something happens rather than spinning: a file
         // explorer sitting idle should cost nothing. The timeout keeps
-        // tooltips and blinking cursors alive.
-        if (SDL_WaitEventTimeout(&event, 100))
+        // tooltips and blinking cursors alive; an animation asks for
+        // frames at display rate.
+        if (SDL_WaitEventTimeout(&event, uiState.animating ? 16 : 100))
             {
             do
                 {

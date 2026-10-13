@@ -52,7 +52,10 @@ struct ViewUi
     bool                 lassoPending = false;
     bool                 lassoActive = false;
     bool                 lassoAdditive = false;   // Ctrl/Shift held: add to the existing selection
-    ImVec2               lassoAnchor{};           // screen-space press point
+    ImVec2               lassoAnchor{};           // screen-space press point, at lassoScroll
+    ImVec2               lassoScroll{};           // the list's scroll when the anchor was taken
+    bool                 lassoScrollKnown = false; // lassoScroll is read on the list's next draw
+    float                lassoScrollCarry = 0.0f; // sub-pixel auto-scroll left over between frames
     std::vector<uint8_t> lassoBase;               // selection snapshot when the lasso began
 };
 
@@ -133,6 +136,7 @@ struct UiState
         } externalDrop;
 
     float dpiScale = 1.0f;         // from the host each frame
+    bool  animating = false;       // something moves without input (a lasso scrolling the list): keep frames coming
     bool  resetLayoutRequested = false;
     bool  showMetrics = false;
     bool  showDemo = false;

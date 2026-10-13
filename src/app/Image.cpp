@@ -1,11 +1,13 @@
 #include "app/Image.h"
 #include "app/PathUtil.h"
 #include "platform/FileSystem.h"
+#include "platform/Shell.h"
 #include "platform/Strings.h"
 
 #include "stb_image.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstring>
 
 namespace app
@@ -18,6 +20,20 @@ bool IsViewableImage(std::string_view extension)
     for (const char* e : kViewable)
         if (extension == e) return true;
     return false;
+}
+
+bool IsVideo(std::string_view extension)
+{
+    static const char* const kVideo[] = { "mp4", "m4v", "mov", "avi", "wmv", "mkv", "webm", "mpg", "mpeg",
+                                          "m2ts", "mts", "3gp", "asf" };
+    for (const char* e : kVideo)
+        if (extension == e) return true;
+    return false;
+}
+
+bool HasThumbnail(std::string_view extension)
+{
+    return IsViewableImage(extension) || IsVideo(extension);
 }
 
 namespace
@@ -75,6 +91,33 @@ bool DecodeImageFile(const std::string& path, int maxDim, DecodedImage& out, std
         out.rgba.assign(pixels, pixels + (size_t)w * h * 4);
         }
     stbi_image_free(pixels);
+    return true;
+}
+
+bool DecodeThumbnail(const std::string& path, int maxDim, DecodedImage& out, std::string& error)
+{
+    const std::string name = PathName(path);
+    const size_t dot = name.rfind('.');
+    std::string extension = dot == std::string::npos ? std::string() : name.substr(dot + 1);
+    for (char& c : extension) c = (char)std::tolower((unsigned char)c);
+    if (IsViewableImage(extension)) return DecodeImageFile(path, maxDim, out, error);
+
+    if (!platform::ShellThumbnail(path, maxDim, out.width, out.height, out.rgba, error)) return false;
+    // The shell hands back premultiplied alpha; textures here are straight.
+    // A video frame is opaque anyway, so this only matters at the edges of
+    // the rare transparent thumbnail.
+    out.hasAlpha = false;
+    for (size_t i = 0; i + 3 < out.rgba.size(); i += 4)
+        {
+        const uint32_t a = out.rgba[i + 3];
+        if (a == 255) continue;
+        out.hasAlpha = true;
+        if (a == 0) continue;
+        for (size_t c = 0; c < 3; ++c) out.rgba[i + c] = (uint8_t)std::min<uint32_t>(255, (out.rgba[i + c] * 255 + a / 2) / a);
+        }
+    // The file's own size is not known; the picture stands in for it.
+    out.sourceWidth = out.width;
+    out.sourceHeight = out.height;
     return true;
 }
 

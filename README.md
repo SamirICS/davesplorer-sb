@@ -222,6 +222,7 @@ anything: set `DSP_SHIM_DRYRUN=1` and it appends each decision to
     tools/make_icon.py    regenerates the icon
     tests/                console test binaries
     cmake/dsp_imconfig.h  ImGui configuration (test-engine hooks on)
+    cmake/Info.plist.in   macOS bundle keys
 
 The interface reads application state and owns none of it. `app::AppState`
 and `app::Tab` are plain structs; the unit tests exercise navigation,
@@ -238,8 +239,8 @@ downloads SDL3, Dear ImGui, and the test engine.
 
 ```sh
 ./build.sh                         # configure, build, and run both test suites
-./build/macos-release/stage/davesplorer
-./build/macos-release/stage/davesplorer "$HOME/Downloads"
+open ./build/macos-release/stage/davesplorer.app
+./build/macos-release/stage/davesplorer.app/Contents/MacOS/davesplorer "$HOME/Downloads"
 ./build.sh debug                   # optional debug build
 ```
 
@@ -248,8 +249,17 @@ downloads SDL3, Dear ImGui, and the test engine.
 `ctest --preset macos-release --output-on-failure`. SDL renders through
 Metal.
 
-Assets are staged beside the executable; settings and the dock layout live in
-`~/Library/Application Support/davesplorer`. Home and special folders come
+The build produces a real `davesplorer.app`: without a bundle, macOS has no
+icon, name or identity to read for the app and shows it in the Dock
+borrowing the icon of whatever launched it. `Contents/Resources` holds the
+icon and the assets, and `platform::ExecutableDir` resolves there inside a
+bundle, so assets load the same way as on the other platforms. The `.icns`
+is generated at build time from the same 256px PNG the other platforms use,
+by `sips` and `iconutil`; 256px is that PNG's ceiling, which covers the Dock
+at Retina but leaves Finder's largest preview soft. The bundle declares no
+document types, so Finder does not offer Davesplorer as a handler for
+folders; pass a path on the command line instead. Settings and the dock
+layout live in `~/Library/Application Support/davesplorer`. Home and special folders come
 from the standard search paths, with Movies in place of Videos. “This PC”
 shows the root volume and everything mounted under `/Volumes`, named the way
 Finder names it. Items are hidden by a leading dot or by the filesystem’s
@@ -275,8 +285,7 @@ applications see a plain copy. Off the Cocoa driver, which is how the tests
 run, the clipboard is a private pasteboard, so a test run leaves whatever
 you have copied alone.
 **Dragging out to another application is not implemented on macOS yet; use
-copy/paste instead.** The build produces a plain executable rather than an
-`.app` bundle, so there is no Dock icon or menu bar of its own.
+copy/paste instead.**
 
 ## Windows build
 

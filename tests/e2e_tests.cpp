@@ -795,6 +795,46 @@ void RegisterTests(ImGuiTestEngine* e)
         IM_CHECK_EQ(app::SelectedCount(fx.state.active()), 3);
     };
 
+    t = IM_REGISTER_TEST(e, "explorer", "lasso_scrolls_past_the_edge");
+    t->TestFunc = [](ImGuiTestContext* ctx) {
+        Fixture& fx = *g_fx;
+        for (app::ViewMode mode : { app::ViewMode::Details, app::ViewMode::Thumbnails })
+            {
+            GoToScratch(ctx, fx);
+            fx.state.settings.showStatusBar = true;
+            for (int i = 0; i < 80; ++i) WriteFile(app::JoinPath(fx.root, "row" + std::to_string(i) + ".txt"), "x");
+            fx.state.active().viewMode = mode;
+            app::Refresh(fx.state.active());
+            ctx->Yield(3);
+            RefActiveView(ctx, fx);
+            // The last file starts below the fold, so it is not drawn.
+            IM_CHECK(!ctx->ItemExists("**/###row79.txt"));
+            const ImGuiTestItemInfo sub = ctx->ItemInfo("**/###sub");
+            ImGuiWindow* view = ctx->WindowInfo(ActiveViewRef(fx)).Window;
+            IM_CHECK(sub.ID != 0 && view != nullptr);
+
+            // Press in the right margin beside the first item, drag into the
+            // status bar under the list and hold still: the list scrolls by
+            // itself until the band reaches the end.
+            ctx->MouseMoveToPos(ImVec2(view->InnerRect.Max.x - 12.0f, sub.RectFull.GetCenter().y));
+            ctx->MouseDown(0);
+            ctx->MouseMoveToPos(ImVec2(sub.RectFull.GetCenter().x, view->InnerRect.Max.y - 3.0f));
+            ctx->Yield(2);
+            IM_CHECK(fx.ui.view(fx.state.active().id).lassoActive);
+            IM_CHECK(fx.ui.animating);
+            ctx->Yield(600);
+            IM_CHECK(ctx->ItemExists("**/###row79.txt"));
+            ctx->MouseUp(0);
+            ctx->Yield(2);
+
+            // Everything from the first item to the last is taken, including
+            // the rows that were never on screen together with the first.
+            const app::Tab& tab = fx.state.active();
+            IM_CHECK_EQ(app::SelectedCount(tab), (int)tab.entries.size());
+            IM_CHECK(!fx.ui.animating);
+            }
+    };
+
     t = IM_REGISTER_TEST(e, "explorer", "shortcut_bar_pin_jump_clear");
     t->TestFunc = [](ImGuiTestContext* ctx) {
         Fixture& fx = *g_fx;
