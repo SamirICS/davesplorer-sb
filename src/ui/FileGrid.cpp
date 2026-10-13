@@ -96,7 +96,7 @@ void DrawThumbnailGrid(app::AppState& state, UiState& ui, int tabIndex)
     v.gridRowsVisible = std::max(1, (int)(ImGui::GetContentRegionAvail().y / (cell.y + style.ItemSpacing.y)));
 
     NoticeNewListing(tab, v);
-    const ImRect lassoRect = UpdateLasso(tab, v);
+    const ImRect lassoRect = UpdateLasso(ui, tab, v, 0.0f);
 
     const Palette& palette = CurrentPalette();
     const ImVec4 selectedBg = ImGui::ColorConvertU32ToFloat4(WithAlpha(palette.accent, 70));
@@ -108,6 +108,12 @@ void DrawThumbnailGrid(app::AppState& state, UiState& ui, int tabIndex)
     ListClicks clicks;
     ImDrawList* dl = ImGui::GetWindowDrawList();
     ImFont* iconFont = fonts::Ui();   // the Material icons are merged into it
+
+    LassoLayout lassoLayout;
+    lassoLayout.origin = ImGui::GetCursorScreenPos();
+    lassoLayout.pitch = ImVec2(cell.x + style.ItemSpacing.x, cell.y + style.ItemSpacing.y);
+    lassoLayout.size = cell;
+    lassoLayout.columns = cols;
 
     ImGuiListClipper clipper;
     clipper.Begin(rows, cell.y + style.ItemSpacing.y);
@@ -143,7 +149,6 @@ void DrawThumbnailGrid(app::AppState& state, UiState& ui, int tabIndex)
                 const bool clicked = ImGui::Selectable(label.c_str(), isSelected,
                     ImGuiSelectableFlags_AllowDoubleClick | ImGuiSelectableFlags_AllowOverlap, cell);
                 const bool hoveredNow = ImGui::IsItemHovered();
-                ApplyLassoToItem(tab, v, entryIndex, lassoRect, ImRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax()), false);
                 if (!tab.path.empty()) FileDragSource(state, ui, tab, entryIndex);
                 if (e.isDirectory && FileDropTarget(state, ui, e.path)) ui.rowDropHovered = true;
 
@@ -203,6 +208,7 @@ void DrawThumbnailGrid(app::AppState& state, UiState& ui, int tabIndex)
         }
     ImGui::PopStyleColor(3);
 
+    ApplyLasso(tab, v, lassoRect, lassoLayout);
     DrawLassoBand(v, lassoRect);
     EndLassoOnRelease(tab, v);
     ResolveListClicks(state, ui, tabIndex, clicks);
