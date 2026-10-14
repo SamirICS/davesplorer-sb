@@ -89,6 +89,16 @@ bool OpenWithShell(const std::string& path, std::string& error)
     return Execute(L"open", Utf8ToWide(path), L"", L"", error);
 }
 
+bool OpenUrl(const std::string& url, std::string& error)
+{
+    if (url.rfind("https://", 0) != 0 && url.rfind("http://", 0) != 0)
+        {
+        error = "Only web addresses can be opened: " + url;
+        return false;
+        }
+    return Execute(L"open", Utf8ToWide(url), L"", L"", error);
+}
+
 bool ShowInExplorer(const std::string& path, std::string& error)
 {
     return Execute(nullptr, RealExplorer(), L"/select,\"" + Utf8ToWide(path) + L"\"", L"", error);

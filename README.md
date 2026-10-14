@@ -157,6 +157,14 @@ entry is greyed out everywhere else, including KDE Plasma, Windows and macOS.
   Explorer" and "Open terminal here". Each view's status bar also has New
   folder, Open terminal and Open in Windows Explorer buttons at its right
   end.
+- **Open git remote**: on the context menu of a folder, a file, or the
+  empty area, when the folder is inside a git repository (a worktree or a
+  submodule counts). It opens the remote's web page in the default
+  browser: one entry for one remote, a submenu naming each for several.
+  `git@host:owner/repo.git` and `ssh://` addresses are opened as
+  `https://host/owner/repo`, and a user name or token in the URL is
+  dropped. A remote that is a local path is listed but greyed out. The
+  repository's own files are read, so git need not be installed.
 - **Run a program** (Linux): a file the execute bit makes runnable is
   recognised as one -- the application icon and "Application" in the Type
   column where it has no extension -- and the item context menu's "Run"
@@ -344,7 +352,8 @@ Project code compiles with `/W4 /WX /permissive-`.
 ## Tests
 
 - `davesplorer_unit_tests` covers path handling, number formatting, settings
-  and layout-file round-trips, pinned views at startup, navigation history, listing/sort/filter, selection rules and
+  and layout-file round-trips, pinned views at startup, git remote lookup
+  and URL mapping, navigation history, listing/sort/filter, selection rules and
   file operations against a scratch folder under `%TEMP%`.
 - `davesplorer_e2e_tests` runs the real interface headless under the Dear
   ImGui Test Engine: it types into the address bar, double-clicks folders,
@@ -354,8 +363,9 @@ Project code compiles with `/W4 /WX /permissive-`.
   drags a file from one side to the other, creates, renames, deletes and
   cut/copy-pastes files through the dialogs and shortcuts, drags rows onto
   folders, breadcrumbs and the navigation tree, simulates a drop arriving
-  from another program, pins a view from its tab's menu, and saves a split
-  layout and opens it again from the recent list.
+  from another program, pins a view from its tab's menu, saves a split
+  layout and opens it again from the recent list, and offers a fake
+  repository's remotes on the context menu.
   `davesplorer_e2e_tests <name-filter> -v` runs one test with a debug log.
 
 The unit tests exercise the real Windows clipboard and put any text that

@@ -23,6 +23,22 @@ bool OpenWithShell(const std::string& path, std::string& error)
         return false;
         }
 }
+bool OpenUrl(const std::string& url, std::string& error)
+{
+    if (url.rfind("https://", 0) != 0 && url.rfind("http://", 0) != 0)
+        {
+        error = "Only web addresses can be opened: " + url;
+        return false;
+        }
+    @autoreleasepool
+        {
+        NSString* text = [NSString stringWithUTF8String:url.c_str()];
+        NSURL* target = text ? [NSURL URLWithString:text] : nil;
+        if (target && [[NSWorkspace sharedWorkspace] openURL:target]) { error.clear(); return true; }
+        error = "Could not open '" + url + "'.";
+        return false;
+        }
+}
 bool OpenFolderInExplorer(const std::string& folder, std::string& error)
 { return OpenWithShell(folder.empty() ? "/" : folder, error); }
 bool ShowInExplorer(const std::string& path, std::string& error)

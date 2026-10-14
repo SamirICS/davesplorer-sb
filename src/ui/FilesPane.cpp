@@ -13,6 +13,7 @@
 #include "app/Image.h"
 #include "app/Listing.h"
 #include "app/Navigation.h"
+#include "app/GitRemote.h"
 #include "app/PathUtil.h"
 #include "app/Selection.h"
 #include "platform/FileSystem.h"
@@ -297,6 +298,47 @@ bool DrawToolbar(app::AppState& state, UiState& ui, int tabIndex)
 
 } // namespace
 
+// "Open git remote" for the repository holding a folder: one item when it
+// has one remote, a submenu naming each when it has several, greyed out
+// when the folder is in no repository.
+void GitRemoteMenu(UiState& ui, const std::string& folder)
+{
+    if (ImGui::IsWindowAppearing())
+        {
+        ui.gitQueryPath = folder;
+        ui.gitRemotes = app::FindGitRemotes(folder);
+        }
+    static const std::vector<app::GitRemote> none;
+    const std::vector<app::GitRemote>& remotes = ui.gitQueryPath == folder ? ui.gitRemotes : none;
+    auto open = [&](const app::GitRemote& r) {
+        std::string error;
+        if (!platform::OpenUrl(r.webUrl, error)) ShowError(ui, error);
+    };
+    auto explain = [](const app::GitRemote& r) {
+        if (!ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled)) return;
+        if (r.webUrl.empty()) ImGui::SetTooltip("%s\nnot a web address", r.url.c_str());
+        else ImGui::SetTooltip("%s", r.webUrl.c_str());
+    };
+    if (remotes.size() == 1)
+        {
+        if (ImGui::MenuItem("Open git remote", nullptr, false, !remotes[0].webUrl.empty())) open(remotes[0]);
+        explain(remotes[0]);
+        return;
+        }
+    if (ImGui::BeginMenu("Open git remote", !remotes.empty()))
+        {
+        for (size_t i = 0; i < remotes.size(); ++i)
+            {
+            const app::GitRemote& r = remotes[i];
+            const std::string where = r.webUrl.empty() ? r.url : r.webUrl.substr(r.webUrl.find("://") + 3);
+            const std::string label = r.name + "  " + where + "###remote" + std::to_string(i);
+            if (ImGui::MenuItem(label.c_str(), nullptr, false, !r.webUrl.empty())) open(r);
+            explain(r);
+            }
+        ImGui::EndMenu();
+        }
+}
+
 void DrawRowContextMenu(app::AppState& state, UiState& ui, int tabIndex)
 {
     app::Tab& tab = state.tabs[(size_t)tabIndex];
@@ -364,6 +406,9 @@ void DrawRowContextMenu(app::AppState& state, UiState& ui, int tabIndex)
         const std::vector<int> sel = app::SelectedIndices(tab);
         if (!sel.empty() && !platform::ShowInExplorer(tab.entries[(size_t)sel[0]].path, error)) ShowError(ui, error);
         }
+    // A folder row asks about its own repository; anything else, the one
+    // the view is in.
+    GitRemoteMenu(ui, focusedIsFolder ? focusedPath : tab.path);
     ImGui::Separator();
     std::string clipError;
     if (ImGui::MenuItem("Cut", "Ctrl+X", false, haveSelection && inFolder) && !app::CopySelection(state, tab, true, clipError)) ShowError(ui, clipError);
@@ -417,6 +462,7 @@ void DrawBackgroundContextMenu(app::AppState& state, UiState& ui, app::Tab& tab)
         std::string error;
         if (!platform::OpenTerminalAt(tab.path, error)) ShowError(ui, error);
         }
+    GitRemoteMenu(ui, tab.path);
 }
 
 void NoticeNewListing(app::Tab& tab, ViewUi& v)

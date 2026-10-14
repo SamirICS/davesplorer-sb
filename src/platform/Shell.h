@@ -19,6 +19,10 @@ bool ShellThumbnail(const std::string& path, int maxDim, int& width, int& height
 // Opens a file with its associated program, or a folder in Explorer.
 bool OpenWithShell(const std::string& path, std::string& error);
 
+// A web page in the default browser. Only http and https: anything else is
+// refused rather than handed to whatever claims the scheme.
+bool OpenUrl(const std::string& url, std::string& error);
+
 // Windows Explorer with the item selected.
 bool ShowInExplorer(const std::string& path, std::string& error);
 

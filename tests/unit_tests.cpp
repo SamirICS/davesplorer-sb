@@ -4,6 +4,7 @@
 #include "app/AppState.h"
 #include "app/FileOps.h"
 #include "app/Format.h"
+#include "app/GitRemote.h"
 #include "app/Image.h"
 #include "app/Layout.h"
 #include "app/Listing.h"
@@ -972,6 +973,102 @@ void TestImage()
     CHECK(remembered.active().viewMode == ViewMode::Thumbnails);
 }
 
+void TestGitRemotes()
+{
+    // Remote URLs to web pages.
+    CHECK_EQ(app::RemoteWebUrl("git@github.com:SamirICS/davesplorer-sb.git"), "https://github.com/SamirICS/davesplorer-sb");
+    CHECK_EQ(app::RemoteWebUrl("https://github.com/evaderkrub/davesplorer"), "https://github.com/evaderkrub/davesplorer");
+    CHECK_EQ(app::RemoteWebUrl("https://github.com/a/b.git/"), "https://github.com/a/b");
+    CHECK_EQ(app::RemoteWebUrl("https://user:s3cret@gitlab.example.com/g/sub/p.git"), "https://gitlab.example.com/g/sub/p");
+    CHECK_EQ(app::RemoteWebUrl("http://intranet:8080/r.git"), "http://intranet:8080/r");
+    CHECK_EQ(app::RemoteWebUrl("ssh://git@gitlab.example.com:2222/group/proj.git"), "https://gitlab.example.com/group/proj");
+    CHECK_EQ(app::RemoteWebUrl("git://example.org/x/y.git"), "https://example.org/x/y");
+    CHECK_EQ(app::RemoteWebUrl("bitbucket.org:team/repo"), "https://bitbucket.org/team/repo");
+    CHECK_EQ(app::RemoteWebUrl("git@ssh.dev.azure.com:v3/org/proj/repo"), "https://dev.azure.com/org/proj/_git/repo");
+    // Local paths and anything that is not a network remote have no page.
+    CHECK_EQ(app::RemoteWebUrl("/srv/git/repo.git"), "");
+    CHECK_EQ(app::RemoteWebUrl("../other"), "");
+    CHECK_EQ(app::RemoteWebUrl("file:///srv/git/repo.git"), "");
+    CHECK_EQ(app::RemoteWebUrl("C:/repos/x.git"), "");
+    CHECK_EQ(app::RemoteWebUrl("C:\\repos\\x.git"), "");
+    CHECK_EQ(app::RemoteWebUrl("dir/with:colon"), "");
+    // Whatever a config file says, what comes out is an https page or
+    // nothing -- never another scheme handed to the browser.
+    CHECK_EQ(app::RemoteWebUrl("javascript:alert(1)"), "https://javascript/alert(1)");
+    CHECK_EQ(app::RemoteWebUrl("ftp://host/x"), "");
+    CHECK_EQ(app::RemoteWebUrl(""), "");
+    CHECK_EQ(app::StripUrlCredentials("https://u:tok@host/p"), "https://host/p");
+    CHECK_EQ(app::StripUrlCredentials("https://host/p@v2"), "https://host/p@v2");
+    CHECK_EQ(app::StripUrlCredentials("git@host:p"), "git@host:p");
+    // The opener refuses anything but a web page, before reaching the desktop.
+    std::string openError;
+    CHECK(!platform::OpenUrl("file:///etc/passwd", openError));
+    CHECK(!openError.empty());
+    CHECK(!platform::OpenUrl("javascript:alert(1)", openError));
+
+    // A plain repository, found from a folder deep inside it. Quoting,
+    // comments, the old [remote.x] spelling and a second url line.
+    TempDir tmp("git");
+    const std::string repo = tmp.dir("repo");
+    std::string error;
+    platform::CreateFolder(app::JoinPath(repo, ".git"), error);
+    {
+        std::ofstream cfg(app::JoinPath(app::JoinPath(repo, ".git"), "config"));
+        cfg << "[core]\n\tbare = false\n"
+            << "[remote \"origin\"]\n\turl = https://bob:tok@github.com/o/r.git  # inline\n\turl = https://mirror.example/r\n"
+            << "\tfetch = +refs/heads/*:refs/remotes/origin/*\n"
+            << "; a comment\n[Remote \"fork\"]\n\tURL = \"git@github.com:me/r.git\"\n"
+            << "[remote.local]\n\turl = /srv/r.git\n"
+            << "[branch \"main\"]\n\tremote = origin\n";
+    }
+    const std::string deep = app::JoinPath(app::JoinPath(repo, "src"), "ui");
+    std::filesystem::create_directories(deep);
+    std::string root;
+    std::vector<app::GitRemote> r = app::FindGitRemotes(deep, &root);
+    CHECK_EQ(root, repo);
+    CHECK_EQ(r.size(), (size_t)3);
+    CHECK_EQ(r[0].name, "origin");
+    CHECK_EQ(r[0].url, "https://github.com/o/r.git");   // the token never leaves the file
+    CHECK_EQ(r[0].webUrl, "https://github.com/o/r");
+    CHECK_EQ(r[1].name, "fork");
+    CHECK_EQ(r[1].webUrl, "https://github.com/me/r");
+    CHECK_EQ(r[2].name, "local");
+    CHECK_EQ(r[2].webUrl, "");
+    CHECK_EQ(app::FindGitRemotes(repo).size(), (size_t)3);
+
+    // A linked worktree: .git is a file naming the git directory, whose
+    // commondir leads back to the main repository's config.
+    const std::string wtGit = app::JoinPath(app::JoinPath(app::JoinPath(repo, ".git"), "worktrees"), "feature");
+    std::filesystem::create_directories(wtGit);
+    std::ofstream(app::JoinPath(wtGit, "commondir")) << "../..\n";
+    const std::string wt = tmp.dir("feature");
+    std::ofstream(app::JoinPath(wt, ".git")) << "gitdir: " << wtGit << "\n";
+    r = app::FindGitRemotes(wt);
+    CHECK_EQ(r.size(), (size_t)3);
+
+    // A submodule: .git names its own git directory, relative, with its
+    // own remotes.
+    const std::string modGit = app::JoinPath(app::JoinPath(app::JoinPath(repo, ".git"), "modules"), "lib");
+    std::filesystem::create_directories(modGit);
+    std::ofstream(app::JoinPath(modGit, "config")) << "[remote \"origin\"]\n\turl = https://gitlab.example.com/x/lib.git\n";
+    const std::string lib = app::JoinPath(repo, "lib");
+    platform::CreateFolder(lib, error);
+    std::ofstream(app::JoinPath(lib, ".git")) << "gitdir: ../.git/modules/lib\n";
+    r = app::FindGitRemotes(lib, &root);
+    CHECK_EQ(root, lib);
+    CHECK_EQ(r.size(), (size_t)1);
+    CHECK_EQ(r[0].webUrl, "https://gitlab.example.com/x/lib");
+
+    // Outside any repository, and This PC: nothing.
+    CHECK(app::FindGitRemotes(tmp.dir("plain")).empty());
+    CHECK(app::FindGitRemotes("").empty());
+    // A repository with no remotes.
+    const std::string bare = tmp.dir("noremotes");
+    platform::CreateFolder(app::JoinPath(bare, ".git"), error);
+    std::ofstream(app::JoinPath(app::JoinPath(bare, ".git"), "config")) << "[core]\n";
+    CHECK(app::FindGitRemotes(bare).empty());
+}
+
 void TestPinsAndLayouts()
 {
     // Pinned views and recent layouts survive the settings round trip; a
@@ -1326,6 +1423,7 @@ int main()
     TestImage();
     TestAppState();
     TestPinsAndLayouts();
+    TestGitRemotes();
     TestExpandedTree();
     app::treescan::Shutdown();   // joins the folder-walking thread
     std::printf("%d checks, %d failures\n", g_checks, g_failures);

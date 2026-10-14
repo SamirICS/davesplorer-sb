@@ -1293,6 +1293,58 @@ void RegisterTests(ImGuiTestEngine* e)
         app::SaveAppState(fx.state);
     };
 
+    // Open git remote: greyed out outside a repository, one item for one
+    // remote, a submenu naming each for several. Nothing is clicked, so no
+    // browser opens.
+    t = IM_REGISTER_TEST(e, "explorer", "open_git_remote_menu");
+    t->TestFunc = [](ImGuiTestContext* ctx) {
+        Fixture& fx = *g_fx;
+        GoToScratch(ctx, fx);
+        RefActiveView(ctx, fx);
+        ctx->ItemClick("**/###alpha.txt", ImGuiMouseButton_Right);
+        ctx->Yield(2);
+        ctx->SetRef("//$FOCUSED");
+        IM_CHECK((ctx->ItemInfo("Open git remote").ItemFlags & ImGuiItemFlags_Disabled) != 0);
+        ctx->PopupCloseAll();
+        ctx->Yield(2);
+
+        std::string error;
+        const std::string gitDir = app::JoinPath(fx.root, ".git");
+        platform::CreateFolder(gitDir, error);
+        WriteFile(app::JoinPath(gitDir, "config"), "[remote \"origin\"]\n\turl = git@github.com:me/scratch.git\n");
+        // A folder row asks about the repository it is in, found upwards.
+        RefActiveView(ctx, fx);
+        ctx->ItemClick("**/###sub", ImGuiMouseButton_Right);
+        ctx->Yield(2);
+        ctx->SetRef("//$FOCUSED");
+        IM_CHECK((ctx->ItemInfo("Open git remote").ItemFlags & ImGuiItemFlags_Disabled) == 0);
+        IM_CHECK_EQ(fx.ui.gitRemotes.size(), (size_t)1);
+        IM_CHECK_STR_EQ(fx.ui.gitRemotes[0].webUrl.c_str(), "https://github.com/me/scratch");
+        ctx->PopupCloseAll();
+        ctx->Yield(2);
+
+        WriteFile(app::JoinPath(gitDir, "config"),
+                  "[remote \"origin\"]\n\turl = https://github.com/up/scratch\n"
+                  "[remote \"fork\"]\n\turl = git@github.com:me/scratch.git\n"
+                  "[remote \"disk\"]\n\turl = /srv/scratch.git\n");
+        RefActiveView(ctx, fx);
+        ctx->ItemClick("**/###alpha.txt", ImGuiMouseButton_Right);
+        ctx->Yield(2);
+        ctx->SetRef("//$FOCUSED");
+        ctx->ItemClick("Open git remote");   // opens the submenu
+        ctx->Yield(2);
+        // The submenu is its own popup window, the topmost one open.
+        ImGuiContext& g = *ctx->UiContext;
+        IM_CHECK(g.OpenPopupStack.Size >= 2);
+        ctx->SetRef(g.OpenPopupStack.back().Window);
+        IM_CHECK((ctx->ItemInfo("###remote0").ItemFlags & ImGuiItemFlags_Disabled) == 0);
+        IM_CHECK((ctx->ItemInfo("###remote1").ItemFlags & ImGuiItemFlags_Disabled) == 0);
+        IM_CHECK((ctx->ItemInfo("###remote2").ItemFlags & ImGuiItemFlags_Disabled) != 0);   // a local path has no page
+        IM_CHECK_STR_EQ(fx.ui.gitRemotes[1].name.c_str(), "fork");
+        ctx->PopupCloseAll();
+        ctx->Yield(2);
+    };
+
     t = IM_REGISTER_TEST(e, "explorer", "thumbnails_view_grid");
     t->TestFunc = [](ImGuiTestContext* ctx) {
         Fixture& fx = *g_fx;

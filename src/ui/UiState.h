@@ -3,6 +3,7 @@
 // app is unchanged.
 #pragma once
 
+#include "app/GitRemote.h"
 #include "imgui.h"
 
 #include <cstdint>
@@ -127,6 +128,11 @@ struct UiState
     std::string pinQueryPath;
     bool        pinQueryCanPin = false;
     bool        pinQueryPinned = false;
+
+    // The git remotes of the folder a context menu is about, read from the
+    // repository's files once as the menu opens.
+    std::string                 gitQueryPath;
+    std::vector<app::GitRemote> gitRemotes;
 
     // Navigation tree: subfolders per path, filled on first expand.
     std::unordered_map<std::string, std::vector<std::string>> treeChildren;

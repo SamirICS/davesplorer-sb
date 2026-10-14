@@ -26,6 +26,17 @@ bool OpenWithShell(const std::string& path, std::string& error)
     g_free(uri); g_object_unref(file);
     return Finish(ok, e, error);
 }
+bool OpenUrl(const std::string& url, std::string& error)
+{
+    if (url.rfind("https://", 0) != 0 && url.rfind("http://", 0) != 0)
+        {
+        error = "Only web addresses can be opened: " + url;
+        return false;
+        }
+    GError* e = nullptr;
+    const bool ok = g_app_info_launch_default_for_uri(url.c_str(), nullptr, &e);
+    return Finish(ok, e, error);
+}
 bool OpenFolderInExplorer(const std::string& folder, std::string& error)
 { return OpenWithShell(folder.empty() ? "/" : folder, error); }
 bool ShowInExplorer(const std::string& path, std::string& error)

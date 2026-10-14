@@ -147,6 +147,7 @@ add_library(dsp_app STATIC
     src/app/Shortcuts.cpp
     src/app/Image.cpp
     src/app/Layout.cpp
+    src/app/GitRemote.cpp
     ${DSP_PLATFORM_DIR}/Strings.${DSP_PLATFORM_EXT}
     ${DSP_PLATFORM_DIR}/Paths.${DSP_PLATFORM_EXT}
     ${DSP_PLATFORM_DIR}/FileSystem.${DSP_PLATFORM_EXT}
