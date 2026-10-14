@@ -28,4 +28,20 @@ bool OpenTerminalAt(const std::string& dir, std::string& error);
 // empty -- so a program finds the files it keeps beside itself.
 bool RunExecutable(const std::string& path, const std::string& workingDir, std::string& error);
 
+// The desktop's list of pinned applications -- the GNOME dash. Only GNOME
+// keeps one we can write, so this is false everywhere else and the menu
+// entry stays greyed out.
+bool CanPinApplications();
+
+// Whether the dash already holds this item. Reads only: nothing is
+// installed or generated to answer the question.
+bool IsPinned(const std::string& path);
+
+// Adds the item to the dash, first installing or generating whatever
+// launcher the dash needs to name it by, or takes it back out again.
+// Unpinning leaves a generated launcher on disk: re-pinning is then
+// immediate, and nothing the user may have edited is deleted for them.
+bool PinApplication(const std::string& path, std::string& error);
+bool UnpinApplication(const std::string& path, std::string& error);
+
 } // namespace platform

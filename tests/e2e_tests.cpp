@@ -14,6 +14,7 @@
 #include "app/TreeScan.h"
 #include "platform/Clipboard.h"
 #include "platform/FileSystem.h"
+#include "platform/Shell.h"
 #include "platform/Strings.h"
 #include "ui/Fonts.h"
 #include "ui/MainWindow.h"
@@ -38,6 +39,7 @@
 #undef Yield   // windows.h defines Yield() as a macro, which breaks ctx->Yield()
 
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <string>
 
@@ -1029,6 +1031,58 @@ void RegisterTests(ImGuiTestEngine* e)
         const std::string marker = app::JoinPath(fx.root, "ran.txt");
         for (int i = 0; i < 200 && !platform::PathExists(marker); ++i) ctx->SleepNoSkip(0.01f, 0.01f);
         IM_CHECK(platform::PathExists(marker));
+        IM_CHECK(fx.ui.dialogMessage.empty());
+    };
+
+    // The dash: pinning a program from the context menu, and the entry
+    // turning into its own way back out. Runs only against the isolated
+    // GSettings backend ctest provides, never a real desktop's dash.
+    t = IM_REGISTER_TEST(e, "explorer", "pin_program_to_dash");
+    t->TestFunc = [](ImGuiTestContext* ctx) {
+        Fixture& fx = *g_fx;
+        const char* backend = std::getenv("GSETTINGS_BACKEND");
+        if (!backend || std::string(backend) != "memory" || !platform::CanPinApplications())
+            {
+            ctx->LogWarning("skipped: needs GSETTINGS_BACKEND=memory and a writable favorite-apps");
+            return;
+            }
+        GoToScratch(ctx, fx);
+        const std::string program = app::JoinPath(fx.root, "pinnable");
+        WriteFile(program, "#!/bin/sh\n:\n");
+        std::filesystem::permissions(program, std::filesystem::perms::owner_exec,
+                                     std::filesystem::perm_options::add);
+        app::Refresh(fx.state.active());
+        ctx->Yield(3);
+
+        // A text file is not an application, so there is nothing to pin.
+        RefActiveView(ctx, fx);
+        ctx->ItemClick("**/###alpha.txt", ImGuiMouseButton_Right);
+        ctx->Yield(2);
+        ctx->SetRef("//$FOCUSED");
+        IM_CHECK((ctx->ItemInfo("Pin to dash").ItemFlags & ImGuiItemFlags_Disabled) != 0);
+        ctx->PopupCloseAll();
+        ctx->Yield(2);
+
+        // The program is offered the pin, and taking it reaches the dash.
+        RefActiveView(ctx, fx);
+        ctx->ItemClick("**/###pinnable", ImGuiMouseButton_Right);
+        ctx->Yield(2);
+        ctx->SetRef("//$FOCUSED");
+        IM_CHECK((ctx->ItemInfo("Pin to dash").ItemFlags & ImGuiItemFlags_Disabled) == 0);
+        ctx->ItemClick("Pin to dash");
+        ctx->Yield(2);
+        IM_CHECK(platform::IsPinned(program));
+        IM_CHECK(fx.ui.dialogMessage.empty());
+
+        // Reopened, the one entry now says the opposite and undoes it.
+        RefActiveView(ctx, fx);
+        ctx->ItemClick("**/###pinnable", ImGuiMouseButton_Right);
+        ctx->Yield(2);
+        ctx->SetRef("//$FOCUSED");
+        IM_CHECK(!ctx->ItemExists("Pin to dash"));
+        ctx->ItemClick("Unpin from dash");
+        ctx->Yield(2);
+        IM_CHECK(!platform::IsPinned(program));
         IM_CHECK(fx.ui.dialogMessage.empty());
     };
 #endif

@@ -238,5 +238,11 @@ set_target_properties(davesplorer_e2e_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY 
 add_test(NAME e2e_tests COMMAND davesplorer_e2e_tests)
 
 if(NOT WIN32)
-    set_tests_properties(unit_tests e2e_tests PROPERTIES ENVIRONMENT "SDL_VIDEODRIVER=dummy")
+    # A memory GSettings backend and a private XDG data directory: the dash
+    # tests pin and unpin for real, and must not touch the developer's own
+    # dash or install launchers into their home. CTest sets both before the
+    # process starts, which is what GLib's one-time caching of the user data
+    # directory requires.
+    set_tests_properties(unit_tests e2e_tests PROPERTIES ENVIRONMENT
+        "SDL_VIDEODRIVER=dummy;GSETTINGS_BACKEND=memory;XDG_DATA_HOME=${CMAKE_BINARY_DIR}/test-xdg-data")
 endif()

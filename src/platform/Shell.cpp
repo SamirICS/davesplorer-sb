@@ -110,4 +110,17 @@ bool RunExecutable(const std::string& path, const std::string& workingDir, std::
     return Execute(L"open", Utf8ToWide(path), L"", Utf8ToWide(dir), error);
 }
 
+// Windows has refused programmatic taskbar pinning since Windows 10: there
+// is no supported call, and the dash is a GNOME idea in any case.
+bool CanPinApplications() { return false; }
+bool IsPinned(const std::string&) { return false; }
+
+bool PinApplication(const std::string&, std::string& error)
+{
+    error = "Pinning to the dash is only supported on the GNOME desktop.";
+    return false;
+}
+
+bool UnpinApplication(const std::string& path, std::string& error) { return PinApplication(path, error); }
+
 } // namespace platform

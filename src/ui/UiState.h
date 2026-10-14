@@ -110,6 +110,13 @@ struct UiState
     int         dialogEntry = -1;
     bool        deletePermanent = false;
 
+    // Whether the item the context menu is about is in the dash. Asking the
+    // desktop costs a GSettings read, so it is asked once as the menu opens
+    // rather than every frame it stays open.
+    std::string pinQueryPath;
+    bool        pinQueryCanPin = false;
+    bool        pinQueryPinned = false;
+
     // Navigation tree: subfolders per path, filled on first expand.
     std::unordered_map<std::string, std::vector<std::string>> treeChildren;
 

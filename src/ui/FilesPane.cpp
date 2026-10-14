@@ -305,7 +305,19 @@ void DrawRowContextMenu(app::AppState& state, UiState& ui, int tabIndex)
     const bool focusedIsFolder = tab.focused >= 0 && tab.entries[(size_t)tab.focused].isDirectory;
     const bool focusedIsImage = tab.focused >= 0 && !focusedIsFolder && app::IsViewableImage(tab.entries[(size_t)tab.focused].extension);
     const bool focusedIsProgram = tab.focused >= 0 && tab.entries[(size_t)tab.focused].isExecutable;
+    const bool focusedIsLauncher = tab.focused >= 0 && tab.entries[(size_t)tab.focused].extension == "desktop";
     const std::string focusedPath = tab.focused >= 0 ? tab.entries[(size_t)tab.focused].path : std::string();
+    // What the dash holds, and whether there is a dash at all, are asked as
+    // the menu opens rather than once a frame: both are GSettings reads.
+    const bool focusedCouldPin = focusedIsProgram || focusedIsLauncher;
+    if (ImGui::IsWindowAppearing())
+        {
+        ui.pinQueryPath = focusedPath;
+        ui.pinQueryCanPin = focusedCouldPin && platform::CanPinApplications();
+        ui.pinQueryPinned = ui.pinQueryCanPin && platform::IsPinned(focusedPath);
+        }
+    const bool canPin = focusedCouldPin && ui.pinQueryPath == focusedPath && ui.pinQueryCanPin;
+    const bool pinned = canPin && ui.pinQueryPinned;
     if (ImGui::MenuItem("Open"))
         {
         OpenSelectedOrFocused(state, ui, tabIndex);
@@ -329,6 +341,16 @@ void DrawRowContextMenu(app::AppState& state, UiState& ui, int tabIndex)
             const platform::FileEntry& e = tab.entries[(size_t)i];
             if (e.isExecutable && !platform::RunExecutable(e.path, tab.path, error)) ShowError(ui, error);
             }
+        }
+    // The dash, unlike Run, acts on the focused item alone: one label cannot
+    // honestly say "pin" and "unpin" at once for a mixed selection.
+    if (ImGui::MenuItem(pinned ? "Unpin from dash" : "Pin to dash", nullptr, false, canPin))
+        {
+        std::string error;
+        const bool ok = pinned ? platform::UnpinApplication(focusedPath, error)
+                               : platform::PinApplication(focusedPath, error);
+        if (ok) ui.pinQueryPinned = !pinned;
+        else ShowError(ui, error);
         }
     if (ImGui::MenuItem("Open with default program", nullptr, false, tab.focused >= 0 && !focusedIsFolder))
         {

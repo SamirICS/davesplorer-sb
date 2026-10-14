@@ -55,6 +55,20 @@ an item uses `org.freedesktop.FileManager1` with a folder-opening fallback.
 “Open terminal here” finds an installed terminal launcher. The Windows
 registration script and Explorer interceptor apply only to Windows.
 
+“Pin to dash” adds the focused item to the GNOME dash — the GSettings key
+`org.gnome.shell favorite-apps` — and reads “Unpin from dash” once it is
+there. It works on a `.desktop` launcher and on any program the execute bit
+makes runnable, the same files “Run” accepts. The dash names applications by
+desktop ID rather than by path, so anything outside an applications directory
+is put into `~/.local/share/applications` first: a launcher is copied under
+its own name, and a plain program gets a generated entry named
+`davesplorer-<program>.desktop`, prefixed so that pinning `~/bin/code` cannot
+collide with the real `code.desktop`. An installed entry that is neither ours
+nor already identical is never overwritten — the pin fails and says so.
+Unpinning removes the dash entry but leaves the launcher on disk. GNOME is
+the only desktop with a favourites list Davesplorer can write, so the menu
+entry is greyed out everywhere else, including KDE Plasma, Windows and macOS.
+
 ## What it does (Windows feature reference)
 
 - **Browse** drives and folders with a Windows Explorer layout: navigation

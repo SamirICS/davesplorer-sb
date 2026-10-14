@@ -23,13 +23,18 @@
 #include <unistd.h>
 #include <SDL3/SDL.h>
 #endif
+#ifdef __linux__
+#include <gio/gio.h>
+#endif
 #include <filesystem>
 
 #include <chrono>
 #include <cstdio>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <iterator>
 #include <string>
 #include <thread>
 #include <vector>
@@ -329,6 +334,105 @@ void TestLinuxExecutables()
     // Nothing to run: a message comes back, and nothing is handed to a shell.
     CHECK(!platform::RunExecutable(plain, tmp.path, error));
     CHECK(!error.empty());
+}
+
+// How many times the dash holds this id. Safe to call only once
+// CanPinApplications() has said the schema is there: g_settings_new aborts
+// the process when it is not.
+int FavoriteCount(const std::string& id)
+{
+    GSettings* settings = g_settings_new("org.gnome.shell");
+    gchar** raw = g_settings_get_strv(settings, "favorite-apps");
+    int found = 0;
+    for (gchar** p = raw; p && *p; ++p)
+        if (id == *p) ++found;
+    g_strfreev(raw);
+    g_object_unref(settings);
+    return found;
+}
+
+std::string ReadAll(const std::filesystem::path& p)
+{
+    std::ifstream in(p);
+    return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+}
+
+// These pin and unpin for real. CMake hands the test process a memory
+// GSettings backend and a private XDG_DATA_HOME so that "for real" is never
+// the developer's own dash; run straight from a shell without them, the test
+// steps aside rather than rewriting somebody's desktop.
+void TestLinuxDashPinning()
+{
+    const char* backend = std::getenv("GSETTINGS_BACKEND");
+    const char* dataHome = std::getenv("XDG_DATA_HOME");
+    if (!backend || std::string(backend) != "memory" || !dataHome)
+        {
+        std::printf("TestLinuxDashPinning skipped: needs GSETTINGS_BACKEND=memory and XDG_DATA_HOME (run it under ctest)\n");
+        return;
+        }
+    if (!platform::CanPinApplications())
+        {
+        std::printf("TestLinuxDashPinning skipped: no writable org.gnome.shell favorite-apps here\n");
+        return;
+        }
+
+    const std::filesystem::path apps = std::filesystem::path(dataHome) / "applications";
+    std::filesystem::create_directories(apps);
+    TempDir tmp("pin");
+    std::string error;
+
+    // A plain program has no launcher, so pinning has to write one. The name
+    // has a space in it, which is where the quoting matters.
+    const std::string program = tmp.file("my tool", "#!/bin/sh\n:\n");
+    std::filesystem::permissions(program, std::filesystem::perms::owner_exec, std::filesystem::perm_options::add);
+    CHECK(!platform::IsPinned(program));
+    CHECK(platform::PinApplication(program, error));
+    CHECK(error.empty());
+    CHECK(platform::IsPinned(program));
+
+    // Named for us, not for the program alone: pinning a binary called
+    // "code" must not come out as the real code.desktop.
+    const std::filesystem::path generated = apps / "davesplorer-my-tool.desktop";
+    CHECK(std::filesystem::exists(generated));
+    const std::string launcher = ReadAll(generated);
+    // Quoted, or a path with a space is read as two arguments.
+    CHECK(launcher.find("Exec=\"" + program + "\"") != std::string::npos);
+    CHECK(launcher.find("X-Davesplorer-Generated=true") != std::string::npos);
+
+    // Pinning what is already pinned is not an error and leaves one entry.
+    CHECK(platform::PinApplication(program, error));
+    CHECK_EQ(FavoriteCount("davesplorer-my-tool.desktop"), 1);
+
+    CHECK(platform::UnpinApplication(program, error));
+    CHECK(!platform::IsPinned(program));
+    CHECK_EQ(FavoriteCount("davesplorer-my-tool.desktop"), 0);
+    // The launcher stays behind: re-pinning is then immediate, and nothing
+    // the user may have edited is deleted for them.
+    CHECK(std::filesystem::exists(generated));
+
+    // A launcher already where the desktop looks pins under its own id, and
+    // nothing is copied anywhere.
+    const std::filesystem::path installed = apps / "already-here.desktop";
+    { std::ofstream(installed) << "[Desktop Entry]\nType=Application\nName=Here\nExec=/bin/true\n"; }
+    CHECK(platform::PinApplication(installed.string(), error));
+    CHECK(platform::IsPinned(installed.string()));
+    CHECK_EQ(FavoriteCount("already-here.desktop"), 1);
+
+    // A launcher from anywhere else is installed first, under a name the
+    // shell can look up.
+    const std::string loose = tmp.file("loose app.desktop", "[Desktop Entry]\nType=Application\nName=Loose\nExec=/bin/true\n");
+    CHECK(platform::PinApplication(loose, error));
+    CHECK(std::filesystem::exists(apps / "loose-app.desktop"));
+    CHECK_EQ(FavoriteCount("loose-app.desktop"), 1);
+
+    // An installed application that happens to share the name is not ours to
+    // overwrite: the pin fails and says so, and the file is left alone.
+    const std::string other = tmp.dir("other");
+    const std::filesystem::path clash = std::filesystem::path(other) / "already-here.desktop";
+    { std::ofstream(clash) << "[Desktop Entry]\nType=Application\nName=Different\nExec=/bin/false\n"; }
+    CHECK(!platform::PinApplication(clash.string(), error));
+    CHECK(!error.empty());
+    CHECK(ReadAll(installed).find("Exec=/bin/true") != std::string::npos);
 }
 #endif
 
@@ -1036,6 +1140,7 @@ int main()
 #endif
 #ifdef __linux__
     TestLinuxExecutables();
+    TestLinuxDashPinning();
 #endif
     TestSettings();
     TestNavigationAndListing();

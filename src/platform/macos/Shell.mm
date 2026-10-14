@@ -74,4 +74,17 @@ bool RunExecutable(const std::string& path, const std::string& workingDir, std::
         return false;
         }
 }
+
+// The Dock is not the dash: it has no supported interface to pin into, and
+// the GNOME favourites list this is built on does not exist here.
+bool CanPinApplications() { return false; }
+bool IsPinned(const std::string&) { return false; }
+
+bool PinApplication(const std::string&, std::string& error)
+{
+    error = "Pinning to the dash is only supported on the GNOME desktop.";
+    return false;
+}
+
+bool UnpinApplication(const std::string& path, std::string& error) { return PinApplication(path, error); }
 }
