@@ -447,6 +447,7 @@ void HandleGlobalShortcuts(app::AppState& state, UiState& ui)
 
 void DrawFrame(app::AppState& state, UiState& ui)
 {
+    ui.animating = false;   // whatever still moves says so again this frame
     thumbnails::Pump();
     textures::Pump();
     BeginDragDropFrame(state, ui);

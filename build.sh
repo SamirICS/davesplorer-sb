@@ -13,4 +13,8 @@ esac
 cmake --preset "$host-$mode"
 cmake --build --preset "$host-$mode" --parallel "${CMAKE_BUILD_PARALLEL_LEVEL:-8}"
 ctest --preset "$host-$mode" --output-on-failure
-printf '\nRun: %s/build/%s-%s/stage/davesplorer\n' "$PWD" "$host" "$mode"
+if [ "$host" = macos ]; then
+    printf '\nRun: open %s/build/macos-%s/stage/davesplorer.app\n' "$PWD" "$mode"
+else
+    printf '\nRun: %s/build/%s-%s/stage/davesplorer\n' "$PWD" "$host" "$mode"
+fi

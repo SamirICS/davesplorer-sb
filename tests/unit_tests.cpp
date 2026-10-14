@@ -859,6 +859,13 @@ void TestImage()
     CHECK(!IsViewableImage("webp"));   // stb_image has no webp; the shell gets it
     CHECK(!IsViewableImage("txt"));
     CHECK(!IsViewableImage(""));
+    CHECK(IsVideo("mp4"));
+    CHECK(IsVideo("mkv"));
+    CHECK(!IsVideo("png"));
+    CHECK(!IsVideo("ts"));             // TypeScript far more often than MPEG-TS
+    CHECK(HasThumbnail("mov"));
+    CHECK(HasThumbnail("jpg"));
+    CHECK(!HasThumbnail("txt"));
 
     TempDir dir("image");
     const std::string png = JoinPath(dir.path, "tiny.png");
@@ -897,6 +904,17 @@ void TestImage()
     CHECK(!DecodeImageFile(fake, 0, bad, error));
     CHECK(!error.empty());
     CHECK(!DecodeImageFile(JoinPath(dir.path, "missing.png"), 0, bad, error));
+
+    // Thumbnails: an image goes through the decoder; a "video" the
+    // platform's thumbnailer cannot read fails cleanly.
+    DecodedImage thumb;
+    CHECK(DecodeThumbnail(png, 1, thumb, error));
+    CHECK_EQ(thumb.width, 1);
+    CHECK_EQ(thumb.sourceWidth, 2);
+    const std::string fakeVideo = JoinPath(dir.path, "fake.mp4");
+    std::ofstream(std::filesystem::path(reinterpret_cast<const char8_t*>(fakeVideo.c_str()))) << "not really a film";
+    CHECK(!DecodeThumbnail(fakeVideo, 64, bad, error));
+    CHECK(!error.empty());
 
     // Siblings: the folder's images in natural name order, nothing else.
     WriteBytes(JoinPath(dir.path, "img10.png"), kTinyPng, sizeof(kTinyPng));

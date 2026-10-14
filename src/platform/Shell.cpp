@@ -5,6 +5,10 @@
 #include <windows.h>
 #include <shellapi.h>
 #include <shlwapi.h>
+#include <shobjidl.h>
+
+#include <cstdlib>
+#include <utility>
 
 #include <filesystem>
 
@@ -122,5 +126,77 @@ bool PinApplication(const std::string&, std::string& error)
 }
 
 bool UnpinApplication(const std::string& path, std::string& error) { return PinApplication(path, error); }
+
+bool ShellThumbnail(const std::string& path, int maxDim, int& width, int& height,
+                    std::vector<uint8_t>& rgba, std::string& error)
+{
+    // Thumbnail handlers are COM objects. The calling thread joins an
+    // apartment on first use and leaves it when the thread ends, rather
+    // than per call, which would unload the handlers every time.
+    struct Apartment
+        {
+        HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+        ~Apartment() { if (SUCCEEDED(hr)) CoUninitialize(); }
+        };
+    thread_local Apartment apartment;
+
+    IShellItemImageFactory* factory = nullptr;
+    HRESULT hr = SHCreateItemFromParsingName(Utf8ToWide(path).c_str(), nullptr, IID_PPV_ARGS(&factory));
+    if (FAILED(hr))
+        {
+        error = WinErrorMessage((unsigned long)hr);
+        return false;
+        }
+    // THUMBNAILONLY: without it a file with no thumbnail comes back as its
+    // type's icon, and the grid draws its own icons. The shell keeps the
+    // aspect ratio within the requested square, and caches the result as
+    // Explorer does.
+    HBITMAP bitmap = nullptr;
+    hr = factory->GetImage(SIZE{ maxDim, maxDim }, SIIGBF_THUMBNAILONLY, &bitmap);
+    factory->Release();
+    if (FAILED(hr) || !bitmap)
+        {
+        error = WinErrorMessage((unsigned long)hr);
+        return false;
+        }
+
+    BITMAP info{};
+    GetObjectW(bitmap, sizeof(info), &info);
+    width = info.bmWidth;
+    height = std::abs(info.bmHeight);
+    bool ok = width > 0 && height > 0;
+    if (ok)
+        {
+        BITMAPINFO bi{};
+        bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+        bi.bmiHeader.biWidth = width;
+        bi.bmiHeader.biHeight = -height;   // top-down
+        bi.bmiHeader.biPlanes = 1;
+        bi.bmiHeader.biBitCount = 32;
+        bi.bmiHeader.biCompression = BI_RGB;
+        rgba.assign((size_t)width * height * 4, 0);
+        HDC dc = GetDC(nullptr);
+        ok = GetDIBits(dc, bitmap, 0, (UINT)height, rgba.data(), &bi, DIB_RGB_COLORS) == height;
+        ReleaseDC(nullptr, dc);
+        }
+    DeleteObject(bitmap);
+    if (!ok)
+        {
+        error = "Could not read the thumbnail of " + path;
+        return false;
+        }
+
+    // BGRA to RGBA. A bitmap with no alpha in it at all (all zero) is
+    // opaque, not invisible.
+    bool anyAlpha = false;
+    for (size_t i = 0; i < rgba.size(); i += 4)
+        {
+        std::swap(rgba[i], rgba[i + 2]);
+        anyAlpha = anyAlpha || rgba[i + 3] != 0;
+        }
+    if (!anyAlpha)
+        for (size_t i = 3; i < rgba.size(); i += 4) rgba[i] = 255;
+    return true;
+}
 
 } // namespace platform

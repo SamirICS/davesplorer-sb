@@ -1,5 +1,6 @@
-// Thumbnails for the file grid: small textures of image files, decoded on
-// a worker thread so a folder of large photos never stalls the interface,
+// Thumbnails for the file grid: small textures of image files (and of
+// videos, a frame the platform's thumbnailer picks), made on a worker
+// thread so a folder of large photos or films never stalls the interface,
 // kept in a bounded cache keyed by path and modification time.
 #pragma once
 

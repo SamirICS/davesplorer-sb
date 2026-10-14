@@ -2,6 +2,8 @@
 #include "ui/IconsMaterialDesign.h"
 #include "ui/Theme.h"
 
+#include "app/Image.h"
+
 #include <initializer_list>
 #include <string>
 #include <string_view>
@@ -57,7 +59,7 @@ Kind KindOf(const platform::FileEntry& e)
     if (e.isDirectory) return (e.path.size() == 3 && e.path[1] == ':') ? Kind::Drive : Kind::Folder;
     const std::string_view x = e.extension;
     if (In(x, { "png", "jpg", "jpeg", "gif", "bmp", "webp", "svg", "ico", "tif", "tiff", "heic" })) return Kind::Image;
-    if (In(x, { "mp4", "mkv", "avi", "mov", "wmv", "webm", "m4v" })) return Kind::Video;
+    if (app::IsVideo(x)) return Kind::Video;
     if (In(x, { "mp3", "wav", "flac", "ogg", "m4a", "aac", "wma" })) return Kind::Audio;
     if (In(x, { "zip", "7z", "rar", "tar", "gz", "bz2", "xz", "cab", "iso" })) return Kind::Archive;
     if (In(x, { "exe", "msi", "bat", "cmd", "com", "ps1", "lnk" })) return Kind::Executable;

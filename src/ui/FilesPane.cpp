@@ -432,34 +432,95 @@ void NoticeNewListing(app::Tab& tab, ViewUi& v)
     v.lassoPending = v.lassoActive = false;
 }
 
-ImRect UpdateLasso(app::Tab& tab, ViewUi& v)
+void BeginLassoPress(app::Tab& tab, ViewUi& v)
+{
+    const ImGuiIO& io = ImGui::GetIO();
+    v.lassoPending = true;
+    v.lassoActive = false;
+    v.lassoAnchor = io.MousePos;
+    // The press may be outside the scrolling window (the right margin), so
+    // the scroll it was made at is read on the list's next draw.
+    v.lassoScrollKnown = false;
+    v.lassoScrollCarry = 0.0f;
+    v.lassoAdditive = io.KeyCtrl || io.KeyShift;
+    v.lassoBase = tab.selected;
+}
+
+ImRect UpdateLasso(UiState& ui, app::Tab& tab, ViewUi& v, float topInset)
 {
     ImRect rect;
     if (!v.lassoPending && !v.lassoActive) return rect;
+    ImGuiWindow* window = ImGui::GetCurrentWindow();
+    const ImGuiIO& io = ImGui::GetIO();
+
+    // The anchor is pinned to the content it was pressed on, so when the
+    // list scrolls it moves with the items and the band stretches back to
+    // where it began, possibly far off screen.
+    if (!v.lassoScrollKnown)
+        {
+        v.lassoScroll = window->Scroll;
+        v.lassoScrollKnown = true;
+        }
+    const ImVec2 anchor(v.lassoAnchor.x - (window->Scroll.x - v.lassoScroll.x),
+                        v.lassoAnchor.y - (window->Scroll.y - v.lassoScroll.y));
+
     // Grow the rectangle from its anchor to the mouse, and promote a
     // pending press to an active lasso once the mouse has moved. A plain
     // lasso replaces the selection; Ctrl/Shift adds to it.
-    const ImVec2 m = ImGui::GetIO().MousePos;
-    rect = ImRect(ImVec2(std::min(v.lassoAnchor.x, m.x), std::min(v.lassoAnchor.y, m.y)),
-                  ImVec2(std::max(v.lassoAnchor.x, m.x), std::max(v.lassoAnchor.y, m.y)));
-    if (v.lassoPending && (std::fabs(m.x - v.lassoAnchor.x) + std::fabs(m.y - v.lassoAnchor.y)) > 4.0f)
+    const ImVec2 m = io.MousePos;
+    rect = ImRect(ImVec2(std::min(anchor.x, m.x), std::min(anchor.y, m.y)),
+                  ImVec2(std::max(anchor.x, m.x), std::max(anchor.y, m.y)));
+    if (v.lassoPending && (std::fabs(m.x - anchor.x) + std::fabs(m.y - anchor.y)) > 4.0f)
         {
         v.lassoPending = false;
         v.lassoActive = true;
         if (!v.lassoAdditive) app::ClearSelection(tab);
         }
+    if (!v.lassoActive) return rect;
+
+    // Held above or below the list, scroll toward the mouse, faster the
+    // further out it is -- the speeds ImGui's own box-select uses. The
+    // mouse need not move, so the host is asked to keep drawing.
+    const float top = window->InnerRect.Min.y + topInset;
+    const float bottom = window->InnerRect.Max.y;
+    const float dist = m.y < top ? m.y - top : (m.y > bottom ? m.y - bottom : 0.0f);
+    const bool canScroll = (dist < 0.0f && window->Scroll.y > 0.0f) || (dist > 0.0f && window->Scroll.y < window->ScrollMax.y);
+    if (!canScroll)
+        {
+        v.lassoScrollCarry = 0.0f;
+        return rect;
+        }
+    const float fontSize = ImGui::GetFontSize();
+    const float speed = fontSize * 35.0f * ImLinearRemapClamp(fontSize, fontSize * 5.0f, 1.0f, 4.0f, std::fabs(dist));
+    v.lassoScrollCarry += (dist < 0.0f ? -speed : speed) * io.DeltaTime;
+    const float step = std::trunc(v.lassoScrollCarry);
+    if (step != 0.0f)
+        {
+        ImGui::SetScrollY(window->Scroll.y + step);
+        v.lassoScrollCarry -= step;
+        }
+    ui.animating = true;
     return rect;
 }
 
-void ApplyLassoToItem(app::Tab& tab, ViewUi& v, int entryIndex, const ImRect& lasso, const ImRect& item, bool verticalOnly)
+void ApplyLasso(app::Tab& tab, ViewUi& v, const ImRect& lasso, const LassoLayout& layout)
 {
     if (!v.lassoActive) return;
-    // Applied here, one frame before the highlight, which reads smoothly.
-    // In additive mode the pre-lasso selection is kept too.
-    const bool inLasso = verticalOnly ? (lasso.Min.y <= item.Max.y && lasso.Max.y >= item.Min.y)
-                                      : lasso.Overlaps(item);
-    const bool base = entryIndex < (int)v.lassoBase.size() && v.lassoBase[(size_t)entryIndex];
-    tab.selected[(size_t)entryIndex] = (v.lassoAdditive ? (base || inLasso) : inLasso) ? 1 : 0;
+    // Every item by its computed place, not just the ones drawn: the list
+    // clipper skips what is scrolled away, and a band dragged past the edge
+    // covers exactly those. The highlight follows on the next frame.
+    const int columns = std::max(1, layout.columns);
+    for (size_t pos = 0; pos < tab.visible.size(); ++pos)
+        {
+        const int entryIndex = tab.visible[pos];
+        const ImVec2 min(layout.origin.x + (float)((int)pos % columns) * layout.pitch.x,
+                         layout.origin.y + (float)((int)pos / columns) * layout.pitch.y);
+        const ImVec2 max(min.x + layout.size.x, min.y + layout.size.y);
+        const bool inLasso = lasso.Min.y < max.y && lasso.Max.y > min.y &&
+                             (layout.verticalOnly || (lasso.Min.x < max.x && lasso.Max.x > min.x));
+        const bool base = entryIndex < (int)v.lassoBase.size() && v.lassoBase[(size_t)entryIndex];
+        tab.selected[(size_t)entryIndex] = (v.lassoAdditive ? (base || inLasso) : inLasso) ? 1 : 0;
+        }
 }
 
 void DrawLassoBand(const ViewUi& v, const ImRect& lasso)
@@ -525,14 +586,7 @@ void ResolveListClicks(app::AppState& state, UiState& ui, int tabIndex, const Li
         // Press in empty space begins a rubber-band; it stays pending (and
         // the selection untouched) until the mouse moves, so a plain click
         // still just clears the selection on release.
-        if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
-            {
-            v.lassoPending = true;
-            v.lassoActive = false;
-            v.lassoAnchor = io.MousePos;
-            v.lassoAdditive = io.KeyCtrl || io.KeyShift;
-            v.lassoBase = tab.selected;
-            }
+        if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) BeginLassoPress(tab, v);
         if (ImGui::IsMouseReleased(ImGuiMouseButton_Right)) ImGui::OpenPopup("BackgroundContext");
         }
 }
@@ -679,7 +733,7 @@ void DrawFileTable(app::AppState& state, UiState& ui, int tabIndex)
         }
 
     NoticeNewListing(tab, v);
-    const ImRect lassoRect = UpdateLasso(tab, v);
+    const ImRect lassoRect = UpdateLasso(ui, tab, v, ImGui::TableGetHeaderRowHeight());
 
     const ImVec4 selectedBg = ImGui::ColorConvertU32ToFloat4(WithAlpha(CurrentPalette().accent, 70));
     const ImVec4 hoveredBg  = ImGui::ColorConvertU32ToFloat4(WithAlpha(CurrentPalette().accent, 40));
@@ -688,6 +742,8 @@ void DrawFileTable(app::AppState& state, UiState& ui, int tabIndex)
     ImGui::PushStyleColor(ImGuiCol_HeaderActive, selectedBg);
 
     ListClicks clicks;
+    LassoLayout lassoLayout;
+    lassoLayout.verticalOnly = true;
 
     ImGuiListClipper clipper;
     clipper.Begin((int)tab.visible.size());
@@ -698,6 +754,10 @@ void DrawFileTable(app::AppState& state, UiState& ui, int tabIndex)
         }
     while (clipper.Step())
         {
+        // Rows are one height, measured by the clipper on its first step;
+        // row n is where the clipper itself would seek to for it.
+        lassoLayout.origin.y = (float)(clipper.StartPosY + clipper.StartSeekOffsetY);
+        lassoLayout.pitch.y = lassoLayout.size.y = clipper.ItemsHeight;
         for (int pos = clipper.DisplayStart; pos < clipper.DisplayEnd; ++pos)
             {
             const int entryIndex = tab.visible[(size_t)pos];
@@ -724,12 +784,6 @@ void DrawFileTable(app::AppState& state, UiState& ui, int tabIndex)
             const bool clicked = ImGui::Selectable(label.c_str(), isSelected,
                 ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick | ImGuiSelectableFlags_AllowOverlap);
             const bool rowHoveredNow = ImGui::IsItemHovered();
-            // Rubber-band membership: the selectable spans all columns, so
-            // its rect is the whole row, and rows read as full-width, so
-            // the band selects by vertical overlap: a drag anywhere down
-            // the list (the right margin included) grabs the rows its
-            // height covers.
-            ApplyLassoToItem(tab, v, entryIndex, lassoRect, ImRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax()), true);
             if (!tab.path.empty()) FileDragSource(state, ui, tab, entryIndex);
             if (e.isDirectory && FileDropTarget(state, ui, e.path)) ui.rowDropHovered = true;
 
@@ -794,6 +848,10 @@ void DrawFileTable(app::AppState& state, UiState& ui, int tabIndex)
         }
     ImGui::PopStyleColor(3);
 
+    // Rows read as full-width, so the band selects by vertical overlap: a
+    // drag anywhere down the list (the right margin included) grabs the
+    // rows its height covers.
+    if (lassoLayout.pitch.y > 0.0f) ApplyLasso(tab, v, lassoRect, lassoLayout);
     DrawLassoBand(v, lassoRect);
     EndLassoOnRelease(tab, v);
     ResolveListClicks(state, ui, tabIndex, clicks);
@@ -899,16 +957,9 @@ void DrawViewContents(app::AppState& state, UiState& ui, int tabIndex)
         // begins a rubber-band; the table's own handling promotes and draws
         // it. This is the always-available start point for a packed folder.
         ViewUi& v = ui.view(tab.id);
-        ImGuiIO& io = ImGui::GetIO();
         if (!tab.path.empty() && !v.lassoActive && !v.lassoPending && !ImGui::IsDragDropActive() &&
             ImGui::IsWindowHovered() && !ImGui::IsAnyItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
-            {
-            v.lassoPending = true;
-            v.lassoActive = false;
-            v.lassoAnchor = io.MousePos;
-            v.lassoAdditive = io.KeyCtrl || io.KeyShift;
-            v.lassoBase = tab.selected;
-            }
+            BeginLassoPress(tab, v);
         }
     ImGui::EndChild();
     HandleListKeys(state, ui, tabIndex);

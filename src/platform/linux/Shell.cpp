@@ -371,4 +371,11 @@ bool UnpinApplication(const std::string& path, std::string& error)
     if (!ok) error = kRefused;
     return ok;
 }
+
+// No thumbnailer is wired up here yet; the grid shows the file's icon.
+bool ShellThumbnail(const std::string&, int, int&, int&, std::vector<uint8_t>&, std::string& error)
+{
+    error = "Thumbnails of this kind of file are not available on this platform.";
+    return false;
+}
 }

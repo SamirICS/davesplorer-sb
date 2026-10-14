@@ -8,6 +8,15 @@ namespace platform
 {
 std::string ExecutableDir()
 {
+    @autoreleasepool
+        {
+        // Inside an .app the assets live where a bundle keeps them, which is
+        // not the directory holding the executable. Built as a plain
+        // executable, mainBundle reports that directory and the two agree.
+        NSBundle* bundle = NSBundle.mainBundle;
+        if ([bundle.bundlePath hasSuffix:@".app"] && bundle.resourcePath)
+            return bundle.resourcePath.UTF8String;
+        }
     uint32_t size = 0;
     _NSGetExecutablePath(nullptr, &size);
     std::vector<char> buffer(size ? size : 1);
