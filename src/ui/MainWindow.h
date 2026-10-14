@@ -4,6 +4,7 @@
 #pragma once
 
 #include "app/AppState.h"
+#include "app/Layout.h"
 #include "ui/UiState.h"
 
 #include "imgui.h"
@@ -41,6 +42,15 @@ inline ImGuiID FileViewWindowId(int id) { return ImHashStr(("###file" + std::to_
 // active folder view. Returns the index into state.fileViews.
 int  OpenFileView(app::AppState& state, UiState& ui, const std::string& path);
 void CloseFileView(app::AppState& state, UiState& ui, int id);
+
+// Saved layouts. Capture reads the dockspace's current tree; Apply replaces
+// every view with the layout's and rebuilds the tree, so it must run before
+// DockSpace() in the frame. Both are what File > Save layout / Open layout
+// do once the file is chosen.
+app::Layout CaptureLayout(const app::AppState& state, const UiState& ui);
+void ApplyLayout(app::AppState& state, UiState& ui, const app::Layout& layout, ImVec2 size);
+// Opens or saves whatever the file dialog (or Recent layouts) asked for.
+void HandleLayoutRequests(app::AppState& state, UiState& ui, ImVec2 size);
 
 // Requests used by more than one pane.
 void RequestDialog(UiState& ui, Dialog which, const std::string& title = {});

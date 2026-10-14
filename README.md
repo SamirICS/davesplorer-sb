@@ -100,6 +100,22 @@ entry is greyed out everywhere else, including KDE Plasma, Windows and macOS.
   opens a second view of the current folder next to it in one step, for a
   dual-pane layout. `Ctrl+Tab` cycles views, `Ctrl+W` closes the active one,
   and closing the last view exits. The layout is remembered.
+- **Pinned views**: right-click a view's tab and choose **Pin**. The tab
+  shows a pin and the view reopens at the next launch, in the folder it was
+  showing and docked where it sat; **Remove pin** on the same menu undoes
+  it. Pins are written to `settings.ini` straight away. A pinned folder
+  that is missing at startup (an unmounted drive) is skipped but kept, and
+  comes back once the folder does. A folder passed on the command line
+  replaces the unpinned views only.
+- **Saved layouts**: **File > Save layout as...** writes the current
+  arrangement to a `.dslayout` file of your choosing: every open folder
+  view with its folder, view mode and pin, how the window is split between
+  them, which tab each stack shows in front, and where the navigation pane
+  sits. **File > Open layout...** and **File > Recent layouts** (the last
+  eight) bring one back, replacing the open views, pinned views included,
+  with the layout's. **File > Save layout** overwrites the layout last
+  opened or saved. Layouts are suggested a `layouts` folder beside
+  `settings.ini`; the file dialogs are the desktop's own.
 - **File operations**: New folder (`Ctrl+Shift+N`), new text file, Rename
   (`F2`), Delete to Recycle Bin (`Del`), Delete permanently (`Shift+Del`),
   Copy as path. Copy and move go through the Windows shell, so its progress
@@ -318,7 +334,7 @@ Project code compiles with `/W4 /WX /permissive-`.
 ## Tests
 
 - `davesplorer_unit_tests` covers path handling, number formatting, settings
-  round-trips, navigation history, listing/sort/filter, selection rules and
+  and layout-file round-trips, pinned views at startup, navigation history, listing/sort/filter, selection rules and
   file operations against a scratch folder under `%TEMP%`.
 - `davesplorer_e2e_tests` runs the real interface headless under the Dear
   ImGui Test Engine: it types into the address bar, double-clicks folders,
@@ -327,8 +343,9 @@ Project code compiles with `/W4 /WX /permissive-`.
   zooms, switches themes, opens, cycles and closes views, splits a view and
   drags a file from one side to the other, creates, renames, deletes and
   cut/copy-pastes files through the dialogs and shortcuts, drags rows onto
-  folders, breadcrumbs and the navigation tree, and simulates a drop
-  arriving from another program.
+  folders, breadcrumbs and the navigation tree, simulates a drop arriving
+  from another program, pins a view from its tab's menu, and saves a split
+  layout and opens it again from the recent list.
   `davesplorer_e2e_tests <name-filter> -v` runs one test with a debug log.
 
 The unit tests exercise the real Windows clipboard and put any text that

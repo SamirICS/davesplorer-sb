@@ -21,6 +21,18 @@ enum class ViewMode
 // Thumbnail edge lengths the View menu offers, in unscaled pixels.
 inline constexpr int kThumbnailSizes[] = { 64, 96, 128, 192 };
 
+// Saved layout files File > Recent layouts remembers, newest first.
+inline constexpr int kRecentLayouts = 8;
+
+// A view the user pinned: reopened at the next launch under the same id, so
+// imgui.ini docks it back where it sat.
+struct PinnedView
+{
+    int         id = 0;
+    std::string path;              // "" is This PC
+    ViewMode    viewMode = ViewMode::Details;
+};
+
 struct Settings
 {
     // One folder per slot; empty string means the slot is unassigned.
@@ -40,6 +52,9 @@ struct Settings
     std::string startPath;         // where the first tab opens; "" is This PC
     bool  rememberLastPath = true;
 
+    std::vector<PinnedView>  pinnedViews;
+    std::vector<std::string> recentLayouts;   // newest first, at most kRecentLayouts
+
     int  windowWidth = 1280;
     int  windowHeight = 800;
     bool windowMaximized = false;
@@ -51,5 +66,9 @@ bool SaveSettings(const std::string& file, const Settings& settings, std::string
 // The same parser the file loader uses, exposed so it can be tested.
 void ApplySettingLine(Settings& s, const std::string& key, const std::string& value);
 std::string SerializeSettings(const Settings& s);
+
+// Puts a layout file at the top of the recent list, or takes it off.
+void AddRecentLayout(Settings& s, const std::string& path);
+void RemoveRecentLayout(Settings& s, const std::string& path);
 
 } // namespace app

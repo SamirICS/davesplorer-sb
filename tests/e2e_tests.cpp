@@ -10,6 +10,7 @@
 #include "app/PathUtil.h"
 #include "app/Selection.h"
 #include "app/FileOps.h"
+#include "app/Layout.h"
 #include "app/Shortcuts.h"
 #include "app/TreeScan.h"
 #include "platform/Clipboard.h"
@@ -17,6 +18,7 @@
 #include "platform/Shell.h"
 #include "platform/Strings.h"
 #include "ui/Fonts.h"
+#include "ui/IconsMaterialDesign.h"
 #include "ui/MainWindow.h"
 #include "ui/Textures.h"
 #include "ui/Theme.h"
@@ -102,6 +104,19 @@ void ResetScratch(Fixture& fx)
     const std::string deeper = app::JoinPath(app::JoinPath(fx.root, "sub"), "deeper");
     platform::CreateFolder(deeper, error);
     WriteFile(app::JoinPath(deeper, "leaf.txt"), "leaf");
+}
+
+// The window behind a view, and the tab it shows in its dock node.
+ImGuiWindow* ViewWindow(ImGuiTestContext* ctx, int tabId)
+{
+    return ctx->WindowInfo(ImGuiTestRef(ui::ViewWindowId(tabId))).Window;
+}
+
+int TabIndexOf(Fixture& fx, int tabId)
+{
+    for (int i = 0; i < (int)fx.state.tabs.size(); ++i)
+        if (fx.state.tabs[(size_t)i].id == tabId) return i;
+    return -1;
 }
 
 // Each view is a window named "<folder>###view<id>"; the ID part is what
@@ -1091,6 +1106,153 @@ void RegisterTests(ImGuiTestEngine* e)
     // an image (decoded on the worker thread), click selects, arrows move
     // within a row, double-click on a folder navigates, and the choice is
     // remembered as the default for new views.
+    // Pinning a view from its tab's context menu, including a tab that is
+    // not the one in front, and the menu entry turning into its way back.
+    t = IM_REGISTER_TEST(e, "explorer", "pin_view_from_tab_menu");
+    t->TestFunc = [](ImGuiTestContext* ctx) {
+        Fixture& fx = *g_fx;
+        GoToScratch(ctx, fx);
+        const int firstId = fx.state.active().id;
+        ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_T);
+        ctx->Yield(3);
+        IM_CHECK_EQ(fx.state.tabs.size(), (size_t)2);
+        ImGuiWindow* first = ViewWindow(ctx, firstId);
+        IM_CHECK(first != nullptr && !first->DockTabIsVisible);   // behind the new view
+
+        ctx->ItemClick(ImGuiTestRef(first->TabId), ImGuiMouseButton_Right);
+        ctx->Yield(2);
+        ctx->SetRef("//$FOCUSED");
+        IM_CHECK(ctx->ItemInfo("Pin", ImGuiTestOpFlags_NoError).ID != 0);
+        ctx->ItemClick("Pin");
+        ctx->Yield(2);
+        const int firstIndex = TabIndexOf(fx, firstId);
+        IM_CHECK(fx.state.tabs[(size_t)firstIndex].pinned);
+        IM_CHECK(!fx.state.tabs[(size_t)(1 - firstIndex)].pinned);
+        // The tab says so, and the pin is already in the settings file.
+        IM_CHECK(std::string(ViewWindow(ctx, firstId)->Name).rfind(ICON_MD_PUSH_PIN, 0) == 0);
+        app::Settings onDisk;
+        IM_CHECK(app::LoadSettings(fx.state.settingsFile, onDisk));
+        IM_CHECK_EQ(onDisk.pinnedViews.size(), (size_t)1);
+        IM_CHECK_EQ(onDisk.pinnedViews[0].id, firstId);
+        IM_CHECK_STR_EQ(onDisk.pinnedViews[0].path.c_str(), fx.root.c_str());
+
+        ctx->ItemClick(ImGuiTestRef(ViewWindow(ctx, firstId)->TabId), ImGuiMouseButton_Right);
+        ctx->Yield(2);
+        ctx->SetRef("//$FOCUSED");
+        IM_CHECK(ctx->ItemInfo("Pin", ImGuiTestOpFlags_NoError).ID == 0);
+        ctx->ItemClick("Remove pin");
+        ctx->Yield(2);
+        IM_CHECK(!fx.state.tabs[(size_t)TabIndexOf(fx, firstId)].pinned);
+        IM_CHECK(std::string(ViewWindow(ctx, firstId)->Name).rfind(ICON_MD_PUSH_PIN, 0) != 0);
+        IM_CHECK(app::LoadSettings(fx.state.settingsFile, onDisk = app::Settings{}));
+        IM_CHECK(onDisk.pinnedViews.empty());
+    };
+
+    // A saved layout brings back the views (pins included), the splits, and
+    // which tab each stack showed in front; Recent layouts reopens it.
+    t = IM_REGISTER_TEST(e, "explorer", "layout_save_and_open");
+    t->TestFunc = [](ImGuiTestContext* ctx) {
+        Fixture& fx = *g_fx;
+        GoToScratch(ctx, fx);
+        fx.state.settings.recentLayouts.clear();
+        fx.state.currentLayout.clear();
+        const std::string sub = app::JoinPath(fx.root, "sub");
+        const std::string file = app::JoinPath(fx.exeDir, "work.dslayout");
+
+        // Left: two views stacked as tabs, the first pinned and in front.
+        // Right: a split-off view in the subfolder, in thumbnails.
+        const int aId = fx.state.active().id;
+        ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_T);
+        ctx->Yield(3);
+        const int bId = fx.state.active().id;
+        app::SetPinned(fx.state, TabIndexOf(fx, aId), true);
+        fx.ui.view(aId).wantFocus = true;
+        ctx->Yield(3);
+        IM_CHECK_EQ(fx.state.active().id, aId);
+        ctx->KeyPress(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_RightArrow);
+        ctx->Yield(4);
+        IM_CHECK_EQ(fx.state.tabs.size(), (size_t)3);
+        const int cId = fx.state.active().id;
+        std::string error;
+        app::NavigateTo(fx.state.active(), sub, error);
+        fx.state.active().viewMode = app::ViewMode::Thumbnails;
+        ctx->Yield(3);
+        IM_CHECK(ViewWindow(ctx, aId)->DockTabIsVisible && !ViewWindow(ctx, bId)->DockTabIsVisible);
+
+        // File > Save layout as... asks the host for a file dialog; the
+        // harness has none, so the chosen file is handed over directly.
+        ctx->SetRef(ui::kHostWindow);
+        ctx->MenuClick("File/Save layout as...");
+        ctx->Yield();
+        IM_CHECK(fx.ui.fileDialogRequest == ui::FileDialog::SaveLayout);
+        fx.ui.fileDialogRequest = ui::FileDialog::None;
+        fx.ui.layoutToSave = file;
+        ctx->Yield(2);
+        IM_CHECK(platform::PathExists(file));
+        IM_CHECK_STR_EQ(fx.state.currentLayout.c_str(), file.c_str());
+        IM_CHECK_EQ(fx.state.settings.recentLayouts.size(), (size_t)1);
+        app::Layout saved;
+        IM_CHECK(app::LoadLayoutFile(file, saved, error));
+        IM_CHECK_EQ(saved.views.size(), (size_t)3);
+
+        // Wreck it: one view left, unpinned, somewhere else.
+        app::SetPinned(fx.state, TabIndexOf(fx, aId), false);
+        fx.ui.view(cId).wantFocus = true;
+        ctx->Yield(2);
+        ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_W);
+        ctx->Yield(2);
+        fx.ui.view(bId).wantFocus = true;
+        ctx->Yield(2);
+        ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_W);
+        ctx->Yield(3);
+        IM_CHECK_EQ(fx.state.tabs.size(), (size_t)1);
+        app::NavigateTo(fx.state.active(), "", error);
+
+        ctx->SetRef(ui::kHostWindow);
+        ctx->MenuClick("File/Recent layouts/###recent0");
+        ctx->Yield(4);
+        IM_CHECK_EQ(fx.state.tabs.size(), (size_t)3);
+        const app::Tab& a = fx.state.tabs[0];
+        const app::Tab& b = fx.state.tabs[1];
+        const app::Tab& c = fx.state.tabs[2];
+        IM_CHECK(a.pinned && !b.pinned && !c.pinned);
+        IM_CHECK_STR_EQ(a.path.c_str(), fx.root.c_str());
+        IM_CHECK_STR_EQ(c.path.c_str(), sub.c_str());
+        IM_CHECK(c.viewMode == app::ViewMode::Thumbnails);
+        IM_CHECK_EQ(fx.state.active().id, c.id);   // focus was on the split-off view
+        ImGuiWindow* aWin = ViewWindow(ctx, a.id);
+        ImGuiWindow* bWin = ViewWindow(ctx, b.id);
+        ImGuiWindow* cWin = ViewWindow(ctx, c.id);
+        IM_CHECK(aWin && bWin && cWin);
+        IM_CHECK(aWin->DockNode != nullptr && aWin->DockNode == bWin->DockNode);
+        IM_CHECK(cWin->DockNode != nullptr && cWin->DockNode != aWin->DockNode);
+        IM_CHECK(cWin->Pos.x > aWin->Pos.x);
+        IM_CHECK(aWin->DockTabIsVisible && !bWin->DockTabIsVisible);
+        ImGuiWindow* nav = ctx->WindowInfo(ImGuiTestRef(ImHashStr(ui::kNavWindow))).Window;
+        IM_CHECK(nav && nav->DockNode != nullptr && nav->Pos.x < aWin->Pos.x);
+
+        // Save layout writes the open layout again, without asking.
+        app::SetPinned(fx.state, 1, true);
+        ctx->MenuClick("File/Save layout");
+        ctx->Yield(2);
+        IM_CHECK(fx.ui.fileDialogRequest == ui::FileDialog::None);
+        IM_CHECK(app::LoadLayoutFile(file, saved, error));
+        IM_CHECK(saved.views[1].pinned);
+
+        // A layout that has gone away: an error, and off the recent list.
+        platform::DeletePermanently({ file }, error);
+        ctx->MenuClick("File/Recent layouts/###recent0");
+        ctx->Yield(2);
+        IM_CHECK(ImGui::GetTopMostPopupModal() != nullptr);
+        IM_CHECK(fx.state.settings.recentLayouts.empty());
+        IM_CHECK_EQ(fx.state.tabs.size(), (size_t)3);   // the views are untouched
+        ctx->SetRef("//Error");
+        ctx->ItemClick("OK");
+        ctx->Yield();
+        for (app::Tab& tab : fx.state.tabs) tab.pinned = false;
+        app::SaveAppState(fx.state);
+    };
+
     t = IM_REGISTER_TEST(e, "explorer", "thumbnails_view_grid");
     t->TestFunc = [](ImGuiTestContext* ctx) {
         Fixture& fx = *g_fx;

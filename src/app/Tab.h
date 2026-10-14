@@ -44,6 +44,7 @@ struct Tab
 {
     int id = 0;                               // stable identity for the interface; indices shift as tabs close
     std::string path;                         // "" is This PC
+    bool pinned = false;                      // reopened at the next launch
 
     std::vector<platform::FileEntry> entries; // everything the OS reported
     std::vector<std::string> typeNames;       // parallel to entries, shell type names

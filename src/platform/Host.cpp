@@ -15,16 +15,18 @@
 #include <SDL3/SDL.h>
 #ifdef _WIN32
 #include <windows.h>
-#else
-#include <filesystem>
 #endif
+#include "app/Layout.h"
 #include "app/PathUtil.h"
 #include "imgui.h"
 #include "imgui_internal.h"
 #include "imgui_impl_sdl3.h"
 #include "imgui_impl_sdlrenderer3.h"
 
+#include <cstdint>
 #include <cstdio>
+#include <filesystem>
+#include <mutex>
 #include <string>
 
 namespace platform
@@ -50,6 +52,74 @@ void ShowFatal(const char* what)
     // only channel that reaches the user.
     std::fprintf(stderr, "%s\n", what);
     SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Davesplorer", what, nullptr);
+}
+
+// The layout file dialogs. SDL may answer on another thread, so the answer
+// waits here until the main loop hands it to the interface.
+struct LayoutDialogResult
+{
+    std::mutex       mutex;
+    bool             done = false;
+    ui::FileDialog   kind = ui::FileDialog::None;
+    std::string      path;    // empty when the user cancelled
+    std::string      error;
+};
+LayoutDialogResult g_layoutDialog;
+
+void SDLCALL OnLayoutDialog(void* userdata, const char* const* files, int)
+{
+    std::lock_guard<std::mutex> lock(g_layoutDialog.mutex);
+    g_layoutDialog.done = true;
+    g_layoutDialog.kind = (ui::FileDialog)(intptr_t)userdata;
+    g_layoutDialog.path.clear();
+    g_layoutDialog.error.clear();
+    if (!files) g_layoutDialog.error = SDL_GetError();
+    else if (files[0]) g_layoutDialog.path = files[0];
+}
+
+void ShowLayoutDialog(SDL_Window* window, ui::FileDialog kind, const app::AppState& state)
+{
+    static const SDL_DialogFileFilter filters[] = { { "Davesplorer layouts", app::kLayoutExtension } };
+    // Layouts are suggested a home of their own beside the settings.
+    std::error_code ec;
+    std::filesystem::create_directories(std::filesystem::path(reinterpret_cast<const char8_t*>(state.layoutsDir.c_str())), ec);
+    void* tag = (void*)(intptr_t)kind;
+    if (kind == ui::FileDialog::OpenLayout)
+        {
+        SDL_ShowOpenFileDialog(OnLayoutDialog, tag, window, filters, 1, state.layoutsDir.c_str(), false);
+        }
+    else
+        {
+        const std::string suggested = !state.currentLayout.empty()
+            ? state.currentLayout
+            : app::JoinPath(state.layoutsDir, std::string("layout.") + app::kLayoutExtension);
+        SDL_ShowSaveFileDialog(OnLayoutDialog, tag, window, filters, 1, suggested.c_str());
+        }
+}
+
+// A finished dialog becomes a layout to open or to save to.
+void PumpLayoutDialog(ui::UiState& ui)
+{
+    std::lock_guard<std::mutex> lock(g_layoutDialog.mutex);
+    if (!g_layoutDialog.done) return;
+    g_layoutDialog.done = false;
+    ui.fileDialogOpen = false;
+    std::string path = std::move(g_layoutDialog.path);
+    if (!g_layoutDialog.error.empty())
+        {
+        ui::ShowError(ui, "Could not show the file dialog: " + g_layoutDialog.error);
+        return;
+        }
+    if (path.empty()) return;   // cancelled
+    if (g_layoutDialog.kind == ui::FileDialog::OpenLayout)
+        {
+        ui.layoutToOpen = path;
+        return;
+        }
+    // Not every desktop's save dialog adds the extension the filter names.
+    const std::string ext = std::string(".") + app::kLayoutExtension;
+    if (path.size() < ext.size() || ToLowerAscii(path.substr(path.size() - ext.size())) != ext) path += ext;
+    ui.layoutToSave = path;
 }
 
 } // namespace
@@ -191,6 +261,7 @@ int RunApplication(int argc, char** argv)
                 }
             while (SDL_PollEvent(&event));
             }
+        PumpLayoutDialog(uiState);
         if (SDL_GetWindowFlags(window) & SDL_WINDOW_MINIMIZED)
             {
             SDL_Delay(50);
@@ -216,6 +287,16 @@ int RunApplication(int argc, char** argv)
         SDL_RenderClear(renderer);
         ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), renderer);
         SDL_RenderPresent(renderer);
+
+        if (uiState.fileDialogRequest != ui::FileDialog::None)
+            {
+            if (!uiState.fileDialogOpen)
+                {
+                uiState.fileDialogOpen = true;
+                ShowLayoutDialog(window, uiState.fileDialogRequest, state);
+                }
+            uiState.fileDialogRequest = ui::FileDialog::None;
+            }
 
         // An in-app drag crossed the window edge: hand it to OLE so Explorer
         // and other programs can take it. DoDragDrop blocks until the drop;

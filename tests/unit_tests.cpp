@@ -5,6 +5,7 @@
 #include "app/FileOps.h"
 #include "app/Format.h"
 #include "app/Image.h"
+#include "app/Layout.h"
 #include "app/Listing.h"
 #include "app/Navigation.h"
 #include "app/PathUtil.h"
@@ -953,6 +954,162 @@ void TestImage()
     CHECK(remembered.active().viewMode == ViewMode::Thumbnails);
 }
 
+void TestPinsAndLayouts()
+{
+    // Pinned views and recent layouts survive the settings round trip; a
+    // pinned path may hold the separator itself.
+    app::Settings s;
+    s.pinnedViews.push_back(app::PinnedView{ 4, "/a|b", app::ViewMode::Thumbnails });
+    s.pinnedViews.push_back(app::PinnedView{ 7, "", app::ViewMode::Details });
+    app::AddRecentLayout(s, "/l/one.dslayout");
+    app::AddRecentLayout(s, "/l/two.dslayout");
+    app::AddRecentLayout(s, "/l/one.dslayout");   // again: back on top, not twice
+    CHECK_EQ(s.recentLayouts.size(), (size_t)2);
+    CHECK_EQ(s.recentLayouts[0], "/l/one.dslayout");
+    for (int i = 0; i < 20; ++i) app::AddRecentLayout(s, "/l/" + std::to_string(i));
+    CHECK_EQ(s.recentLayouts.size(), (size_t)app::kRecentLayouts);
+    CHECK_EQ(s.recentLayouts[0], "/l/19");
+    app::RemoveRecentLayout(s, "/l/19");
+    CHECK_EQ(s.recentLayouts[0], "/l/18");
+
+    app::Settings back;
+    const std::string text = app::SerializeSettings(s);
+    size_t pos = 0;
+    while (pos < text.size())
+        {
+        const size_t nl = text.find('\n', pos);
+        const std::string line = text.substr(pos, nl - pos);
+        const size_t eq = line.find('=');
+        if (eq != std::string::npos) app::ApplySettingLine(back, line.substr(0, eq), line.substr(eq + 1));
+        pos = nl + 1;
+        }
+    CHECK_EQ(back.pinnedViews.size(), (size_t)2);
+    CHECK_EQ(back.pinnedViews[0].id, 4);
+    CHECK_EQ(back.pinnedViews[0].path, "/a|b");
+    CHECK(back.pinnedViews[0].viewMode == app::ViewMode::Thumbnails);
+    CHECK_EQ(back.pinnedViews[1].id, 7);
+    CHECK_EQ(back.pinnedViews[1].path, "");
+    CHECK(back.recentLayouts == s.recentLayouts);
+    // A malformed or id-less pin is dropped, not half-read.
+    app::ApplySettingLine(back, "pinned_view_9", "nonsense");
+    app::ApplySettingLine(back, "pinned_view_9", "0|0|/x");
+    CHECK_EQ(back.pinnedViews.size(), (size_t)2);
+
+    // A layout round-trips: views with their pins, and the tree.
+    app::Layout layout;
+    layout.views = { { "/one", app::ViewMode::Details, true }, { "/two", app::ViewMode::Thumbnails, false }, { "", app::ViewMode::Details, false } };
+    layout.active = 1;
+    layout.root.split = app::LayoutSplit::LeftRight;
+    layout.root.ratio = 0.25f;
+    layout.root.children.resize(2);
+    layout.root.children[0].nav = true;
+    app::LayoutNode& right = layout.root.children[1];
+    right.split = app::LayoutSplit::TopBottom;
+    right.children.resize(2);
+    right.children[0].views = { 0, 1 };
+    right.children[0].selected = 1;
+    right.children[1].views = { 2 };
+    app::Layout parsed;
+    std::string error;
+    CHECK(app::ParseLayout(app::SerializeLayout(layout), parsed, error));
+    CHECK_EQ(parsed.views.size(), (size_t)3);
+    CHECK_EQ(parsed.views[0].path, "/one");
+    CHECK(parsed.views[0].pinned && !parsed.views[1].pinned);
+    CHECK(parsed.views[1].viewMode == app::ViewMode::Thumbnails);
+    CHECK_EQ(parsed.views[2].path, "");
+    CHECK_EQ(parsed.active, 1);
+    CHECK(parsed.root.split == app::LayoutSplit::LeftRight);
+    CHECK(parsed.root.ratio > 0.24f && parsed.root.ratio < 0.26f);
+    CHECK(parsed.root.children[0].nav);
+    CHECK(parsed.root.children[1].split == app::LayoutSplit::TopBottom);
+    CHECK(parsed.root.children[1].children[0].views == std::vector<int>({ 0, 1 }));
+    CHECK_EQ(parsed.root.children[1].children[0].selected, 1);
+    CHECK(parsed.root.children[1].children[1].views == std::vector<int>({ 2 }));
+
+    // Damaged files are refused with a reason, never half-applied.
+    const std::string views = "version=1\nview=0|0|/a\nview=0|0|/b\n";
+    CHECK(!app::ParseLayout("view=0|0|/a\ndock=(0)\n", parsed, error));               // no version
+    CHECK(!app::ParseLayout("version=2\nview=0|0|/a\n", parsed, error));              // newer
+    CHECK(!app::ParseLayout("version=1\n", parsed, error));                           // no views
+    CHECK(!app::ParseLayout(views + "dock=(0 5)\n", parsed, error));                  // no such view
+    CHECK(!app::ParseLayout(views + "dock=(x 0.5 (0) (0))\n", parsed, error));        // placed twice
+    CHECK(!app::ParseLayout(views + "dock=(x 0.5 (0)\n", parsed, error));             // unbalanced
+    CHECK(!app::ParseLayout(views + "dock=(x (0) (1))\n", parsed, error));            // no ratio
+    CHECK(!app::ParseLayout(views + "dock=(nav nav)\n", parsed, error));
+    CHECK(!error.empty());
+    std::string deep = "dock=";
+    for (int i = 0; i < 40; ++i) deep += "(x 0.5 ";
+    CHECK(!app::ParseLayout(views + deep + "\n", parsed, error));
+    // A tree that leaves a view out is fine: it is docked with the others.
+    CHECK(app::ParseLayout(views + "dock=(x 9 (0) ())\nactive=99\n", parsed, error));
+    CHECK(parsed.root.ratio < 0.951f);   // clamped to something usable
+    CHECK_EQ(parsed.active, 1);
+
+    TempDir tmp("pins");
+    const std::string file = app::JoinPath(tmp.path, "work.dslayout");
+    CHECK(app::SaveLayoutFile(file, layout, error));
+    CHECK(app::LoadLayoutFile(file, parsed, error));
+    CHECK_EQ(parsed.views.size(), (size_t)3);
+    CHECK(!app::LoadLayoutFile(app::JoinPath(tmp.path, "missing.dslayout"), parsed, error));
+
+    // Startup: pinned views reopen under the ids they had, the start folder
+    // is not opened twice when a pin already shows it, and a pin whose
+    // folder is gone is kept for next time rather than forgotten.
+    const std::string a = tmp.dir("a");
+    const std::string b = tmp.dir("b");
+    {
+        std::ofstream ini(app::JoinPath(tmp.path, "settings.ini"));
+        ini << "start_path=" << b << "\n"
+            << "pinned_view_0=5|1|" << a << "\n"
+            << "pinned_view_1=3|0|" << b << "\n"
+            << "pinned_view_2=9|0|" << app::JoinPath(tmp.path, "gone") << "\n"
+            << "pinned_view_3=5|0|" << b << "\n";   // a duplicate id is ignored
+    }
+    app::AppState state;
+    app::InitAppState(state, tmp.path);
+    CHECK_EQ(state.tabs.size(), (size_t)2);
+    CHECK_EQ(state.tabs[0].id, 5);
+    CHECK_EQ(state.tabs[0].path, a);
+    CHECK(state.tabs[0].pinned);
+    CHECK(state.tabs[0].viewMode == app::ViewMode::Thumbnails);
+    CHECK_EQ(state.tabs[1].id, 3);
+    CHECK_EQ(state.activeTab, 1);                 // the start folder, already pinned
+    CHECK_EQ(state.unavailablePins.size(), (size_t)1);
+    const int fresh = app::OpenTab(state, a);
+    CHECK(state.tabs[(size_t)fresh].id > 9);      // no new view takes a pinned id
+    CHECK(!state.tabs[(size_t)fresh].pinned);
+
+    // A command-line folder replaces only the unpinned views.
+    CHECK(app::ApplyStartArgument(state, tmp.path));
+    CHECK_EQ(state.tabs.size(), (size_t)3);
+    CHECK_EQ(state.active().path, tmp.path);
+    CHECK(state.tabs[0].pinned && state.tabs[1].pinned);
+
+    // Unpinning is written at once; the missing folder's pin stays.
+    app::SetPinned(state, 0, false);
+    app::SetPinned(state, 2, true);
+    app::Settings onDisk;
+    CHECK(app::LoadSettings(state.settingsFile, onDisk));
+    CHECK_EQ(onDisk.pinnedViews.size(), (size_t)3);
+    CHECK_EQ(onDisk.pinnedViews[0].id, 3);
+    CHECK_EQ(onDisk.pinnedViews[1].path, tmp.path);
+    CHECK_EQ(onDisk.pinnedViews[2].id, 9);
+
+    // With no pin on it, the start folder gets a view of its own, after
+    // the pinned ones.
+    state.activeTab = 0;   // a, unpinned above
+    app::SaveAppState(state);
+    app::AppState again;
+    app::InitAppState(again, tmp.path);
+    CHECK_EQ(again.tabs.size(), (size_t)3);
+    CHECK(again.tabs[0].pinned && again.tabs[1].pinned);
+    CHECK_EQ(again.tabs[1].path, tmp.path);
+    CHECK_EQ(again.tabs[2].path, a);
+    CHECK(!again.tabs[2].pinned);
+    CHECK_EQ(again.activeTab, 2);
+    CHECK_EQ(again.layoutsDir, app::JoinPath(tmp.path, "layouts"));
+}
+
 void TestAppState()
 {
     TempDir tmp("state");
@@ -1150,6 +1307,7 @@ int main()
     TestShortcuts();
     TestImage();
     TestAppState();
+    TestPinsAndLayouts();
     TestExpandedTree();
     app::treescan::Shutdown();   // joins the folder-walking thread
     std::printf("%d checks, %d failures\n", g_checks, g_failures);

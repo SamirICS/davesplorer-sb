@@ -9,6 +9,7 @@
 #include "app/FileOps.h"
 #include "app/Listing.h"
 #include "app/Navigation.h"
+#include "app/PathUtil.h"
 #include "app/Selection.h"
 #include "platform/Shell.h"
 
@@ -215,6 +216,38 @@ void DrawMenuBar(app::AppState& state, UiState& ui)
             ImGui::EndMenuBar();
             return;
             }
+        ImGui::Separator();
+        // The file dialogs are the host's; while one is up the items wait.
+        const bool dialogFree = !ui.fileDialogOpen;
+        if (ImGui::MenuItem("Open layout...", nullptr, false, dialogFree)) ui.fileDialogRequest = FileDialog::OpenLayout;
+        if (ImGui::BeginMenu("Recent layouts", !s.recentLayouts.empty()))
+            {
+            // A copy: choosing one reorders the list.
+            const std::vector<std::string> recent = s.recentLayouts;
+            for (size_t i = 0; i < recent.size(); ++i)
+                {
+                // Named after the file; two of the same name in different
+                // folders are told apart by the tooltip.
+                const std::string label = app::PathName(recent[i]) + "###recent" + std::to_string(i);
+                if (ImGui::MenuItem(label.c_str())) ui.layoutToOpen = recent[i];
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("%s", recent[i].c_str());
+                }
+            ImGui::Separator();
+            if (ImGui::MenuItem("Clear list"))
+                {
+                s.recentLayouts.clear();
+                app::SaveAppState(state);
+                }
+            ImGui::EndMenu();
+            }
+        // Save writes the layout last opened or saved again; with none yet
+        // it asks where, like Save as.
+        if (ImGui::MenuItem("Save layout", nullptr, false, dialogFree || !state.currentLayout.empty()))
+            {
+            if (state.currentLayout.empty()) ui.fileDialogRequest = FileDialog::SaveLayout;
+            else ui.layoutToSave = state.currentLayout;
+            }
+        if (ImGui::MenuItem("Save layout as...", nullptr, false, dialogFree)) ui.fileDialogRequest = FileDialog::SaveLayout;
         ImGui::Separator();
         if (ImGui::MenuItem("New folder", "Ctrl+Shift+N", false, inFolder)) StartNewFolder(state, ui);
         if (ImGui::MenuItem("New text file", nullptr, false, inFolder)) StartNewFile(state, ui);
@@ -435,11 +468,13 @@ void DrawFrame(app::AppState& state, UiState& ui)
     if (state.settings.showShortcutBar) DrawShortcutBar(state, ui);
 
     const ImGuiID dockspaceId = ImGui::GetID("MainDockspace");
+    ui.dockspaceId = dockspaceId;
     if (ui.resetLayoutRequested || ImGui::DockBuilderGetNode(dockspaceId) == nullptr)
         {
         ui.resetLayoutRequested = false;
         BuildDefaultLayout(state, ui, dockspaceId, viewport->WorkSize);
         }
+    HandleLayoutRequests(state, ui, viewport->WorkSize);
     HandleSplitRequest(state, ui);
     ImGui::DockSpace(dockspaceId, ImVec2(0, 0), ImGuiDockNodeFlags_None);
     // The central node is where views go by default; it moves around as

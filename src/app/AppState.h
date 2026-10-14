@@ -37,12 +37,18 @@ struct AppState
     std::string exeDir;          // resolved once at startup
     std::string settingsFile;
     std::string layoutFile;      // imgui.ini beside the exe
+    std::string layoutsDir;      // where File > Save layout suggests saving
+    std::string currentLayout;   // the layout file last opened or saved; File > Save layout writes it again
 
     std::vector<Tab> tabs;
     int activeTab = 0;
     int nextTabId = 1;
 
     std::vector<FileView> fileViews;
+
+    // Pinned folders that were not there at startup (a drive not mounted):
+    // kept in the settings rather than forgotten, and tried again next time.
+    std::vector<PinnedView> unavailablePins;
 
     std::string buildInfo;       // "SDL 3.4.8, MSVC 1950", filled in by the host for the About box
 
@@ -60,18 +66,23 @@ struct AppState
     const Tab& active() const;
 };
 
-// Loads settings, discovers drives and known folders, opens the first tab.
+// Loads settings, discovers drives and known folders, reopens the pinned
+// views, then opens the start folder unless a pinned view already shows it.
 void InitAppState(AppState& state, const std::string& exeDir, const std::string& configDir = {});
 
 // A path handed over on the command line (by the shell, a shortcut, or a
-// terminal) replaces the first tab: a folder opens directly, a file opens
+// terminal) replaces the unpinned tabs with one tab: a folder opens directly, a file opens
 // its folder with the file selected, and anything else (a shell CLSID
 // string, garbage) lands on This PC. Returns false for that last case.
 bool ApplyStartArgument(AppState& state, const std::string& argument);
 
-// Writes settings; the last path of the active tab is remembered when the
-// user asked for that.
+// Writes settings, the pinned views among them; the last path of the active
+// tab is remembered when the user asked for that.
 void SaveAppState(AppState& state);
+
+// Pins a view so it reopens at the next launch, or takes the pin off.
+// Written to the settings at once, as the shortcut bar is.
+void SetPinned(AppState& state, int index, bool pinned);
 
 // Returns the index of the new tab, made active.
 int  OpenTab(AppState& state, const std::string& path);

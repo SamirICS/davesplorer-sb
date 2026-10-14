@@ -31,7 +31,7 @@ namespace ui
 
 std::string ViewWindowName(const app::AppState& state, const app::Tab& tab)
 {
-    return app::LocationTitle(state, tab.path) + "###view" + std::to_string(tab.id);
+    return (tab.pinned ? ICON_MD_PUSH_PIN " " : "") + app::LocationTitle(state, tab.path) + "###view" + std::to_string(tab.id);
 }
 
 namespace
@@ -946,6 +946,13 @@ bool DrawView(app::AppState& state, UiState& ui, int tabIndex)
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(6, 6));
     const bool visible = ImGui::Begin(name.c_str(), &open, ImGuiWindowFlags_NoCollapse);
     ImGui::PopStyleVar();
+    // Right-click on the view's tab (its title bar when floating): straight
+    // after Begin the last item is that tab, even for a tab not in front.
+    if (ImGui::BeginPopupContextItem("###viewtab"))
+        {
+        if (ImGui::MenuItem(tab.pinned ? "Remove pin" : "Pin")) app::SetPinned(state, tabIndex, !tab.pinned);
+        ImGui::EndPopup();
+        }
     if (visible)
         {
         v.dockId = ImGui::GetWindowDockID();

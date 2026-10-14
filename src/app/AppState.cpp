@@ -30,6 +30,7 @@ void InitAppState(AppState& state, const std::string& exeDir, const std::string&
     state.exeDir = exeDir;
     state.settingsFile = JoinPath(configDir.empty() ? exeDir : configDir, "settings.ini");
     state.layoutFile   = JoinPath(configDir.empty() ? exeDir : configDir, "imgui.ini");
+    state.layoutsDir   = JoinPath(configDir.empty() ? exeDir : configDir, "layouts");
     LoadSettings(state.settingsFile, state.settings);
 
     state.quickAccess = platform::GetKnownFolders();
@@ -45,6 +46,34 @@ void InitAppState(AppState& state, const std::string& exeDir, const std::string&
             if (kf.kind == platform::KnownFolderKind::Home) start = kf.path;
         }
     state.tabs.clear();
+    state.unavailablePins.clear();
+    // Each pinned view keeps the id it had, which is what imgui.ini knows
+    // its window by, so it reopens docked where it was.
+    int maxId = 0;
+    for (const PinnedView& pin : state.settings.pinnedViews)
+        {
+        const bool taken = std::any_of(state.tabs.begin(), state.tabs.end(), [&](const Tab& t) { return t.id == pin.id; }) ||
+                           std::any_of(state.unavailablePins.begin(), state.unavailablePins.end(), [&](const PinnedView& p) { return p.id == pin.id; });
+        if (taken) continue;
+        // Its id stays reserved either way, so no new view takes it.
+        maxId = std::max(maxId, pin.id);
+        if (!pin.path.empty() && !platform::IsDirectory(pin.path))
+            {
+            state.unavailablePins.push_back(pin);
+            continue;
+            }
+        state.nextTabId = pin.id;
+        Tab& tab = state.tabs[(size_t)OpenTab(state, pin.path)];
+        tab.pinned = true;
+        tab.viewMode = pin.viewMode;
+        }
+    state.nextTabId = maxId + 1;
+    for (int i = 0; i < (int)state.tabs.size(); ++i)
+        if (state.tabs[(size_t)i].path == NormalizePath(start))
+            {
+            state.activeTab = i;
+            return;
+            }
     OpenTab(state, start);
 }
 
@@ -88,8 +117,8 @@ bool ApplyStartArgument(AppState& state, const std::string& argument)
         select = PathName(path);
         }
 
-    state.tabs.clear();
-    state.activeTab = 0;
+    // The pinned views stay; the argument takes the place of the rest.
+    std::erase_if(state.tabs, [](const Tab& t) { return !t.pinned; });
     OpenTab(state, folder);
     state.active().selectOnLoad = select;
     return !folder.empty();
@@ -99,8 +128,20 @@ void SaveAppState(AppState& state)
 {
     if (state.settings.rememberLastPath && !state.tabs.empty())
         state.settings.startPath = state.active().path;
+    state.settings.pinnedViews.clear();
+    for (const Tab& tab : state.tabs)
+        if (tab.pinned) state.settings.pinnedViews.push_back(PinnedView{ tab.id, tab.path, tab.viewMode });
+    for (const PinnedView& pin : state.unavailablePins)
+        state.settings.pinnedViews.push_back(pin);
     std::string error;
     SaveSettings(state.settingsFile, state.settings, error);
+}
+
+void SetPinned(AppState& state, int index, bool pinned)
+{
+    if (index < 0 || index >= (int)state.tabs.size()) return;
+    state.tabs[(size_t)index].pinned = pinned;
+    SaveAppState(state);
 }
 
 int OpenTab(AppState& state, const std::string& path)

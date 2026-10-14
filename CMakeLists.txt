@@ -146,6 +146,7 @@ add_library(dsp_app STATIC
     src/app/FileOps.cpp
     src/app/Shortcuts.cpp
     src/app/Image.cpp
+    src/app/Layout.cpp
     ${DSP_PLATFORM_DIR}/Strings.${DSP_PLATFORM_EXT}
     ${DSP_PLATFORM_DIR}/Paths.${DSP_PLATFORM_EXT}
     ${DSP_PLATFORM_DIR}/FileSystem.${DSP_PLATFORM_EXT}
@@ -176,6 +177,7 @@ add_library(dsp_ui STATIC
     src/ui/FilesPane.cpp
     src/ui/FileGrid.cpp
     src/ui/ImageView.cpp
+    src/ui/Layouts.cpp
     src/ui/Textures.cpp
     src/ui/Thumbnails.cpp
     src/ui/Dialogs.cpp)

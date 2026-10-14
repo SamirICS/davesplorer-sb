@@ -54,6 +54,22 @@ void ApplySettingLine(Settings& s, const std::string& key, const std::string& va
     else if (key == "window_width")       s.windowWidth = std::max(400, std::atoi(value.c_str()));
     else if (key == "window_height")      s.windowHeight = std::max(300, std::atoi(value.c_str()));
     else if (key == "window_maximized")   s.windowMaximized = ParseBool(value);
+    else if (key.rfind("pinned_view_", 0) == 0)
+        {
+        // id|view mode|path, the path last so a '|' in it survives.
+        const size_t a = value.find('|');
+        const size_t b = a == std::string::npos ? a : value.find('|', a + 1);
+        if (b == std::string::npos) return;
+        PinnedView p;
+        p.id = std::atoi(value.substr(0, a).c_str());
+        p.viewMode = std::atoi(value.substr(a + 1, b - a - 1).c_str()) == 1 ? ViewMode::Thumbnails : ViewMode::Details;
+        p.path = value.substr(b + 1);
+        if (p.id > 0) s.pinnedViews.push_back(std::move(p));
+        }
+    else if (key.rfind("recent_layout_", 0) == 0)
+        {
+        if (!value.empty() && s.recentLayouts.size() < (size_t)kRecentLayouts) s.recentLayouts.push_back(value);
+        }
     else if (key.rfind("shortcut_", 0) == 0)
         {
         const int slot = std::atoi(key.c_str() + 9);
@@ -86,7 +102,23 @@ std::string SerializeSettings(const Settings& s)
     out << "window_maximized=" << (s.windowMaximized ? 1 : 0) << '\n';
     for (size_t i = 0; i < s.shortcuts.size() && i < (size_t)kShortcutSlots; ++i)
         if (!s.shortcuts[i].empty()) out << "shortcut_" << i << '=' << s.shortcuts[i] << '\n';
+    for (size_t i = 0; i < s.pinnedViews.size(); ++i)
+        out << "pinned_view_" << i << '=' << s.pinnedViews[i].id << '|' << (int)s.pinnedViews[i].viewMode << '|' << s.pinnedViews[i].path << '\n';
+    for (size_t i = 0; i < s.recentLayouts.size() && i < (size_t)kRecentLayouts; ++i)
+        out << "recent_layout_" << i << '=' << s.recentLayouts[i] << '\n';
     return out.str();
+}
+
+void AddRecentLayout(Settings& s, const std::string& path)
+{
+    RemoveRecentLayout(s, path);
+    s.recentLayouts.insert(s.recentLayouts.begin(), path);
+    if (s.recentLayouts.size() > (size_t)kRecentLayouts) s.recentLayouts.resize((size_t)kRecentLayouts);
+}
+
+void RemoveRecentLayout(Settings& s, const std::string& path)
+{
+    s.recentLayouts.erase(std::remove(s.recentLayouts.begin(), s.recentLayouts.end(), path), s.recentLayouts.end());
 }
 
 bool LoadSettings(const std::string& file, Settings& out)

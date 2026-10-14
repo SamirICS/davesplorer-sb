@@ -13,6 +13,14 @@
 namespace ui
 {
 
+// A native file dialog the host should show; the UI only asks for one.
+enum class FileDialog
+{
+    None,
+    OpenLayout,
+    SaveLayout,
+};
+
 enum class Dialog
 {
     None,
@@ -141,6 +149,16 @@ struct UiState
 
     float dpiScale = 1.0f;         // from the host each frame
     bool  resetLayoutRequested = false;
+    ImGuiID dockspaceId = 0;       // the main dockspace, for saving its tree
+
+    // Saved layouts. The menus ask for a file dialog, which the host shows;
+    // the chosen file comes back as a path to open or to save to, handled
+    // at the top of the next frame -- opening rebuilds the dock tree, and
+    // DockBuilder calls belong before DockSpace().
+    FileDialog  fileDialogRequest = FileDialog::None;
+    bool        fileDialogOpen = false;    // one is up; the menu items wait
+    std::string layoutToOpen;
+    std::string layoutToSave;
     bool  showMetrics = false;
     bool  showDemo = false;
 };
