@@ -181,11 +181,31 @@ void TickAppState(AppState& state)
     for (Tab& tab : state.tabs)
         ReloadIfNeeded(tab, state.settings);
 
+    // A USB disk plugged in after launch shows up without a refresh.
+    const auto now = std::chrono::steady_clock::now();
+    if (platform::DrivesChanged())
+        {
+        RefreshDrives(state);
+        state.drivesRecheckAt = now + std::chrono::milliseconds(1500);
+        }
+    else if (state.drivesRecheckAt != std::chrono::steady_clock::time_point{} && now >= state.drivesRecheckAt)
+        {
+        state.drivesRecheckAt = {};
+        RefreshDrives(state);
+        }
+
     state.clipboardHasFiles = platform::ClipboardHasFiles();
     // Someone else wrote the clipboard: the ghosted cut list no longer
     // describes what a paste would do.
     if (!state.clipboard.paths.empty() && platform::ClipboardSequence() != state.clipboardOwnedSeq)
         state.clipboard = Clipboard{};
+}
+
+void RefreshDrives(AppState& state)
+{
+    state.drives = platform::GetDrives();
+    for (Tab& tab : state.tabs)
+        if (tab.path.empty()) tab.needsReload = true;
 }
 
 void RefreshAll(AppState& state)

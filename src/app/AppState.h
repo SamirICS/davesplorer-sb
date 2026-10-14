@@ -6,6 +6,7 @@
 #include "app/Tab.h"
 #include "platform/FileSystem.h"
 
+#include <chrono>
 #include <string>
 #include <vector>
 
@@ -54,6 +55,10 @@ struct AppState
 
     std::vector<platform::KnownFolder> quickAccess;
     std::vector<platform::DriveInfo>   drives;
+    // A mount is noticed the moment the kernel has it, which can be before
+    // the desktop's volume monitor has caught up; the list is read again a
+    // little later to be sure.
+    std::chrono::steady_clock::time_point drivesRecheckAt{};
 
     Clipboard     clipboard;
     unsigned long clipboardOwnedSeq = 0;   // clipboard sequence when `clipboard` was written
@@ -88,8 +93,12 @@ void SetPinned(AppState& state, int index, bool pinned);
 int  OpenTab(AppState& state, const std::string& path);
 void CloseTab(AppState& state, int index);
 
-// Once per frame: reloads any tab that asked for it, syncs clipboard facts.
+// Once per frame: reloads any tab that asked for it, syncs clipboard facts,
+// and picks up drives mounted or unmounted since the last frame.
 void TickAppState(AppState& state);
+
+// Reads the drive list again; views on This PC re-read with it.
+void RefreshDrives(AppState& state);
 
 // After a file operation whose reach is unknown: every tab re-reads.
 void RefreshAll(AppState& state);

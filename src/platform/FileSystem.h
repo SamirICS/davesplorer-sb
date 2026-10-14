@@ -60,6 +60,9 @@ struct KnownFolder
 bool ListDirectory(const std::string& path, std::vector<FileEntry>& out, std::string& error);
 
 std::vector<DriveInfo>   GetDrives();
+// Whether drives were mounted or unmounted since the last call (false on
+// the first). Cheap enough to ask every frame; never blocks.
+bool                     DrivesChanged();
 std::vector<KnownFolder> GetKnownFolders();
 
 bool PathExists(const std::string& path);

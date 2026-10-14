@@ -10,6 +10,8 @@
 #include <cerrno>
 #include <cstring>
 #include <sys/stat.h>
+#include <sys/mount.h>
+#include <sys/param.h>
 
 namespace platform
 {
@@ -147,6 +149,23 @@ std::vector<DriveInfo> GetDrives()
             }
         return out;
         }
+}
+bool DrivesChanged()
+{
+    // The mount points, read without waiting on any of them; a change in
+    // the list is a volume coming or going.
+    struct statfs* mounts = nullptr;
+    const int n = getmntinfo(&mounts, MNT_NOWAIT);
+    std::string now;
+    for (int i = 0; i < n; ++i)
+        {
+        now += mounts[i].f_mntonname;
+        now += '\n';
+        }
+    static std::string last = now;
+    if (now == last) return false;
+    last = now;
+    return true;
 }
 std::vector<KnownFolder> GetKnownFolders()
 {

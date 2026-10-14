@@ -185,6 +185,16 @@ std::vector<DriveInfo> GetDrives()
     return drives;
 }
 
+bool DrivesChanged()
+{
+    // A drive letter appearing or disappearing.
+    const DWORD now = GetLogicalDrives();
+    static DWORD last = now;
+    if (now == last) return false;
+    last = now;
+    return true;
+}
+
 std::vector<KnownFolder> GetKnownFolders()
 {
     struct Spec

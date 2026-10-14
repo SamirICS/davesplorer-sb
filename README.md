@@ -34,7 +34,8 @@ Both Wayland and X11 are supported. Assets are staged beside the executable;
 settings and the dock layout live in `$XDG_CONFIG_HOME/davesplorer`
 (default `~/.config/davesplorer`). Home and special folders follow the
 Linux desktop configuration. “This PC” shows the root filesystem and mounted
-volumes exposed by GIO.
+volumes exposed by GIO, and follows them live: a USB disk mounted or
+unmounted while Davesplorer is open appears or disappears on its own.
 
 Linux paths are case-sensitive, use `/`, and preserve spaces and backslashes
 in filenames. Delete uses the desktop trash through GIO; permanent deletion

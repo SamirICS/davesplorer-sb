@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <ctime>
 #include <fcntl.h>
+#include <poll.h>
 #include <unistd.h>
 #include <cerrno>
 #include <cstring>
@@ -125,6 +126,11 @@ std::vector<DriveInfo> GetDrives()
         out.push_back(std::move(d));
         };
     add("/", "Filesystem (/)");
+    // The volume monitor learns of mounts and unmounts over D-Bus, delivered
+    // through GLib's default main context. Nothing else runs that loop in an
+    // SDL program, so it is drained here; without this the list stays as the
+    // first read found it and a drive plugged in later never appears.
+    while (g_main_context_iteration(nullptr, FALSE)) {}
     GVolumeMonitor* monitor = g_volume_monitor_get();
     GList* mounts = g_volume_monitor_get_mounts(monitor);
     for (GList* p = mounts; p; p = p->next)
@@ -138,6 +144,15 @@ std::vector<DriveInfo> GetDrives()
     g_list_free_full(mounts, g_object_unref);
     g_object_unref(monitor);
     return out;
+}
+bool DrivesChanged()
+{
+    // The kernel flags /proc/self/mountinfo with POLLPRI when the mount
+    // table changes, and the poll that reports it also clears it.
+    static const int fd = open("/proc/self/mountinfo", O_RDONLY | O_CLOEXEC);
+    if (fd < 0) return false;
+    pollfd p{ fd, POLLPRI, 0 };
+    return poll(&p, 1, 0) > 0 && (p.revents & (POLLPRI | POLLERR)) != 0;
 }
 std::vector<KnownFolder> GetKnownFolders()
 {

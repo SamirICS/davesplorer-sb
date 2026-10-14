@@ -348,7 +348,7 @@ void DrawMenuBar(app::AppState& state, UiState& ui)
         if (ImGui::MenuItem("Refresh", "F5"))
             {
             app::Refresh(tab);
-            state.drives = platform::GetDrives();
+            app::RefreshDrives(state);
             ui.treeChildren.clear();
             }
         if (ImGui::MenuItem("Reset layout")) ui.resetLayoutRequested = true;
@@ -425,6 +425,7 @@ void HandleGlobalShortcuts(app::AppState& state, UiState& ui)
     if (chord(ImGuiKey_F5))
         {
         app::Refresh(tab);
+        app::RefreshDrives(state);
         ui.treeChildren.clear();
         }
     if (chord(ImGuiMod_Ctrl | ImGuiKey_L) || chord(ImGuiMod_Alt | ImGuiKey_D))
