@@ -1228,6 +1228,24 @@ void RegisterTests(ImGuiTestEngine* e)
         ctx->Yield(2);
         IM_CHECK(ctx->ItemExists("**/###deeper|tool"));
 
+        // The same two from the window's tab.
+        ImGuiWindow* programsWin = ctx->WindowInfo(win).Window;
+        IM_CHECK(programsWin != nullptr && programsWin->TabId != 0);
+        ctx->ItemClick(ImGuiTestRef(programsWin->TabId), ImGuiMouseButton_Right);
+        ctx->Yield(2);
+        ctx->SetRef("//$FOCUSED");
+        ctx->ItemClick("Collapse all");
+        ctx->Yield(2);
+        ctx->SetRef(win);
+        IM_CHECK(!ctx->ItemExists("**/###deeper|tool"));
+        ctx->ItemClick(ImGuiTestRef(programsWin->TabId), ImGuiMouseButton_Right);
+        ctx->Yield(2);
+        ctx->SetRef("//$FOCUSED");
+        ctx->ItemClick("Expand all");
+        ctx->Yield(2);
+        ctx->SetRef(win);
+        IM_CHECK(ctx->ItemExists("**/###deeper|tool"));
+
         // A search with no match empties it; one on the path finds it.
         ctx->ItemInputValue("##filter", "nothing-like-this");
         ctx->Yield(2);

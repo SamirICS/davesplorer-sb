@@ -112,6 +112,19 @@ void DrawRowMenu(app::AppState& state, UiState& ui, const app::Program& p)
         }
 }
 
+// Every folder open or closed, including those a scan has yet to find.
+void ExpandAll(ProgramsViewUi& v)
+{
+    v.collapsed.clear();
+    v.collapsedByDefault = false;
+}
+
+void CollapseAll(ProgramsViewUi& v)
+{
+    v.collapsed.clear();
+    v.collapsedByDefault = true;
+}
+
 bool IsCollapsed(const ProgramsViewUi& v, const std::string& key)
 {
     const auto it = v.collapsed.find(key);
@@ -172,17 +185,9 @@ void DrawToolbar(app::ProgramsView& view, ProgramsViewUi& v, size_t shown, size_
     ImGui::SameLine();
     if (IconButton("Rescan", ICON_MD_REFRESH, "Look again")) app::RescanPrograms(view);
     ImGui::SameLine();
-    if (IconButton("ExpandAll", ICON_MD_UNFOLD_MORE, "Expand all folders"))
-        {
-        v.collapsed.clear();
-        v.collapsedByDefault = false;
-        }
+    if (IconButton("ExpandAll", ICON_MD_UNFOLD_MORE, "Expand all folders")) ExpandAll(v);
     ImGui::SameLine();
-    if (IconButton("CollapseAll", ICON_MD_UNFOLD_LESS, "Collapse all folders"))
-        {
-        v.collapsed.clear();
-        v.collapsedByDefault = true;
-        }
+    if (IconButton("CollapseAll", ICON_MD_UNFOLD_LESS, "Collapse all folders")) CollapseAll(v);
     ImGui::SameLine();
     std::string status;
     const std::string programs = app::WithThousands(shown) + (shown == 1 ? " program" : " programs");
@@ -250,6 +255,16 @@ bool DrawProgramsView(app::AppState& state, UiState& ui, int index)
     bool open = true;
     const bool visible = ImGui::Begin(name.c_str(), &open, ImGuiWindowFlags_NoCollapse);
     ImGui::PopStyleColor((int)std::size(tabColors));
+    // Right-click on the tab (its title bar when floating): straight after
+    // Begin the last item is that tab, even for a tab not in front.
+    if (ImGui::BeginPopupContextItem("###programstab"))
+        {
+        if (ImGui::MenuItem("Expand all")) ExpandAll(v);
+        if (ImGui::MenuItem("Collapse all")) CollapseAll(v);
+        ImGui::Separator();
+        if (ImGui::MenuItem("Rescan")) app::RescanPrograms(view);
+        ImGui::EndPopup();
+        }
     if (!visible)
         {
         ImGui::End();
