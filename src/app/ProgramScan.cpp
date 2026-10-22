@@ -247,33 +247,89 @@ void PlaceProgram(const std::string& root, Program& program)
     program.relDir = last > slash ? rel.substr(slash + 1, last - slash - 1) : std::string();
 }
 
-std::vector<ProgramGroup> GroupPrograms(const std::vector<Program>& programs, const std::string& filter)
+std::vector<ProgramNode> BuildProgramTree(const std::vector<Program>& programs, const std::string& filter)
 {
     const std::string needle = platform::ToLowerAscii(filter);
-    std::map<std::string, ProgramGroup> byProject;
+    std::vector<ProgramNode> nodes(1);
+    std::map<std::string, int> byKey{ { "", 0 } };
     for (size_t i = 0; i < programs.size(); ++i)
         {
         const Program& p = programs[i];
         if (!needle.empty() && platform::ToLowerAscii(p.path).find(needle) == std::string::npos) continue;
-        ProgramGroup& g = byProject[p.project];
-        g.project = p.project;
-        g.rows.push_back((int)i);
-        g.newest = std::max(g.newest, p.modified);
+        std::vector<std::string> parts;
+        if (!p.project.empty()) parts.push_back(p.project);
+        for (size_t a = 0; !p.relDir.empty() && a <= p.relDir.size();)
+            {
+            const size_t b = std::min(p.relDir.find_first_of("/\\", a), p.relDir.size());
+            if (b > a) parts.push_back(p.relDir.substr(a, b - a));
+            a = b + 1;
+            }
+        int at = 0;
+        std::string key;
+        for (const std::string& part : parts)
+            {
+            key = key.empty() ? part : key + "/" + part;
+            auto [it, added] = byKey.emplace(key, (int)nodes.size());
+            if (added)
+                {
+                ProgramNode node;
+                node.name = part;
+                node.key = key;
+                nodes.push_back(std::move(node));
+                nodes[(size_t)at].folders.push_back(it->second);
+                }
+            at = it->second;
+            }
+        nodes[(size_t)at].programs.push_back((int)i);
         }
-    std::vector<ProgramGroup> groups;
-    for (auto& [name, g] : byProject)
+
+    // A child is always made after its parent, so one pass from the end
+    // sees every subtree finished before the folder holding it.
+    for (size_t n = nodes.size(); n-- > 0;)
         {
-        std::sort(g.rows.begin(), g.rows.end(), [&](int a, int b) {
+        ProgramNode& node = nodes[n];
+        node.count = node.programs.size();
+        for (int r : node.programs) node.newest = std::max(node.newest, programs[(size_t)r].modified);
+        for (int c : node.folders)
+            {
+            node.count += nodes[(size_t)c].count;
+            node.newest = std::max(node.newest, nodes[(size_t)c].newest);
+            }
+        std::sort(node.programs.begin(), node.programs.end(), [&](int a, int b) {
             const Program& x = programs[(size_t)a];
             const Program& y = programs[(size_t)b];
             if (x.modified != y.modified) return x.modified > y.modified;
             return x.path < y.path;
         });
-        groups.push_back(std::move(g));
+        std::sort(node.folders.begin(), node.folders.end(), [&](int a, int b) {
+            const ProgramNode& x = nodes[(size_t)a];
+            const ProgramNode& y = nodes[(size_t)b];
+            if (x.newest != y.newest) return x.newest > y.newest;
+            return x.name < y.name;
+        });
         }
-    std::stable_sort(groups.begin(), groups.end(),
-                     [](const ProgramGroup& a, const ProgramGroup& b) { return a.newest > b.newest; });
-    return groups;
+
+    // Compact everything below the projects: a folder holding no program
+    // and one folder takes that folder's place, its name joined on.
+    std::vector<int> pending;
+    for (int project : nodes[0].folders) pending.insert(pending.end(), nodes[(size_t)project].folders.begin(),
+                                                        nodes[(size_t)project].folders.end());
+    while (!pending.empty())
+        {
+        const int n = pending.back();
+        pending.pop_back();
+        while (nodes[(size_t)n].programs.empty() && nodes[(size_t)n].folders.size() == 1)
+            {
+            const ProgramNode child = nodes[(size_t)nodes[(size_t)n].folders[0]];
+            ProgramNode& node = nodes[(size_t)n];
+            node.name += "/" + child.name;
+            node.key = child.key;
+            node.folders = child.folders;
+            node.programs = child.programs;
+            }
+        pending.insert(pending.end(), nodes[(size_t)n].folders.begin(), nodes[(size_t)n].folders.end());
+        }
+    return nodes;
 }
 
 int OpenProgramsView(AppState& state, const std::string& root)

@@ -55,17 +55,25 @@ bool SkipFolderForPrograms(const std::string& name, bool inCargoProfile = false)
 // Fills in project and relDir from the path, relative to root.
 void PlaceProgram(const std::string& root, Program& program);
 
-// One project's programs: indices into ProgramsView::programs, newest first.
-struct ProgramGroup
+// The programs as a folder tree under the scanned root: a node for every
+// folder with a program somewhere below it. A run of folders that only
+// leads on to one more (build/linux-release/stage) is one node, the way an
+// editor's compact folders show it; a project always keeps its own node.
+struct ProgramNode
 {
-    std::string      project;
-    std::vector<int> rows;
+    std::string      name;      // "build/stage" when compacted; "" for the root
+    std::string      key;       // its path below the root, unique; "" for the root
+    std::vector<int> folders;   // child nodes, the newest build first
+    std::vector<int> programs;  // indices into ProgramsView::programs, newest first
+    size_t           count = 0; // programs anywhere below
     int64_t          newest = 0;
 };
 
-// The programs matching the filter (case-insensitive, name or path), by
-// project; the project with the newest build first.
-std::vector<ProgramGroup> GroupPrograms(const std::vector<Program>& programs, const std::string& filter);
+// nodes[0] is the root; its folders are the projects, its programs any that
+// sit in the root itself. Only programs matching the filter (case-
+// insensitive, anywhere in the path) are included. Nodes merged away by
+// compacting stay in the vector but are reached from nowhere.
+std::vector<ProgramNode> BuildProgramTree(const std::vector<Program>& programs, const std::string& filter);
 
 // Opens a Programs view on root and starts its walk, or returns the view
 // already showing root. Returns the index into state.programViews.

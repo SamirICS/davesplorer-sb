@@ -1211,6 +1211,23 @@ void RegisterTests(ImGuiTestEngine* e)
         ctx->SetRef(win);
         IM_CHECK(ctx->ItemExists("**/###deeper|tool"));
 
+        // The folder holding it closes and opens with a click, and the
+        // toolbar closes and opens every folder.
+        IM_CHECK(ctx->ItemExists("**/###folder|deeper"));
+        ctx->ItemClick("**/###folder|deeper");
+        ctx->Yield(2);
+        IM_CHECK(!ctx->ItemExists("**/###deeper|tool"));
+        ctx->ItemClick("**/###folder|deeper");
+        ctx->Yield(2);
+        IM_CHECK(ctx->ItemExists("**/###deeper|tool"));
+        ctx->ItemClick("CollapseAll");
+        ctx->Yield(2);
+        IM_CHECK(ctx->ItemExists("**/###folder|deeper"));
+        IM_CHECK(!ctx->ItemExists("**/###deeper|tool"));
+        ctx->ItemClick("ExpandAll");
+        ctx->Yield(2);
+        IM_CHECK(ctx->ItemExists("**/###deeper|tool"));
+
         // A search with no match empties it; one on the path finds it.
         ctx->ItemInputValue("##filter", "nothing-like-this");
         ctx->Yield(2);

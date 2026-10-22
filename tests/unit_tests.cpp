@@ -437,20 +437,50 @@ void TestProgramScan()
         CHECK(p.path != notExecutable);
         }
 
-    const std::vector<app::ProgramGroup> groups = app::GroupPrograms(view.programs, "");
-    CHECK_EQ(groups.size(), (size_t)4);
-    if (groups.size() == 4)
+    // The tree: projects newest build first, the root's own program after
+    // them, and single-folder runs below a project compacted into one.
+    const std::vector<app::ProgramNode> tree = app::BuildProgramTree(view.programs, "");
+    auto nodeAt = [&](int n) -> const app::ProgramNode& { return tree[(size_t)n]; };
+    CHECK_EQ(tree[0].count, (size_t)5);
+    CHECK_EQ(tree[0].folders.size(), (size_t)3);
+    CHECK_EQ(tree[0].programs.size(), (size_t)1);
+    if (tree[0].folders.size() == 3 && tree[0].programs.size() == 1)
         {
-        CHECK_EQ(groups[0].project, "projB");
-        CHECK_EQ(groups[1].project, "projC");
-        CHECK_EQ(groups[2].project, "projA");
-        CHECK_EQ(groups[3].project, "");
+        CHECK_EQ(nodeAt(tree[0].folders[0]).name, "projB");
+        CHECK_EQ(nodeAt(tree[0].folders[1]).name, "projC");
+        CHECK_EQ(nodeAt(tree[0].folders[2]).name, "projA");
+        CHECK_EQ(view.programs[(size_t)tree[0].programs[0]].path, top);
+
+        // projA/build/stage/app: build holds only stage, so they are one node.
+        const app::ProgramNode& projA = nodeAt(tree[0].folders[2]);
+        CHECK_EQ(projA.folders.size(), (size_t)1);
+        if (projA.folders.size() == 1)
+            {
+            const app::ProgramNode& stageNode = nodeAt(projA.folders[0]);
+            CHECK_EQ(stageNode.name, "build/stage");
+            CHECK_EQ(stageNode.key, "projA/build/stage");
+            CHECK_EQ(stageNode.programs.size(), (size_t)1);
+            }
+
+        // projC/target/release holds cli and the examples folder: the run
+        // stops there, since release has a program of its own.
+        const app::ProgramNode& projC = nodeAt(tree[0].folders[1]);
+        CHECK_EQ(projC.count, (size_t)2);
+        if (projC.folders.size() == 1)
+            {
+            const app::ProgramNode& release = nodeAt(projC.folders[0]);
+            CHECK_EQ(release.name, "target/release");
+            CHECK_EQ(release.programs.size(), (size_t)1);
+            CHECK_EQ(release.folders.size(), (size_t)1);
+            if (release.folders.size() == 1) CHECK_EQ(nodeAt(release.folders[0]).name, "examples");
+            }
         }
     // The search looks at the path, not only the name, and ignores case.
-    const std::vector<app::ProgramGroup> stage = app::GroupPrograms(view.programs, "STAGE");
-    CHECK_EQ(stage.size(), (size_t)1);
-    if (stage.size() == 1) CHECK_EQ(view.programs[(size_t)stage[0].rows[0]].path, app);
-    CHECK(app::GroupPrograms(view.programs, "nothing-like-this").empty());
+    const std::vector<app::ProgramNode> stage = app::BuildProgramTree(view.programs, "STAGE");
+    CHECK_EQ(stage[0].count, (size_t)1);
+    CHECK_EQ(stage[0].folders.size(), (size_t)1);
+    if (stage[0].folders.size() == 1) CHECK_EQ(stage[(size_t)stage[0].folders[0]].name, "projA");
+    CHECK_EQ(app::BuildProgramTree(view.programs, "nothing-like-this")[0].count, (size_t)0);
 
     // A rescan starts over and finds the same.
     app::RescanPrograms(state.programViews[0]);

@@ -107,7 +107,11 @@ struct ProgramsViewUi
     bool    filterWantFocus = false;
 
     std::string selectedPath;                       // the row last clicked
-    std::unordered_map<std::string, bool> collapsed; // project groups closed by hand
+    // Folders opened or closed by hand, by their path below the root;
+    // every other folder follows collapsedByDefault, which Expand all and
+    // Collapse all set, so folders a scan is still finding follow suit.
+    std::unordered_map<std::string, bool> collapsed;
+    bool collapsedByDefault = false;
 };
 
 struct UiState

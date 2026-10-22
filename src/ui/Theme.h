@@ -59,6 +59,11 @@ struct Palette
     // File-list icon tints, chosen per theme so a yellow folder still reads
     // on a light background.
     ImU32 iconFolder, iconDrive, iconFile, iconImage, iconMedia, iconCode, iconArchive, iconExecutable;
+
+    // The Programs window's tab: the accent steeped into the background,
+    // so it stands apart from the folder views in the theme's own colour
+    // (deep red on Wili Dark) and the theme's text still reads on it.
+    ImU32 programsTab, programsTabHovered, programsTabSelected, programsTabOverline;
 };
 
 int                 ThemeCount();

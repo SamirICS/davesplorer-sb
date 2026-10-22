@@ -108,6 +108,19 @@ float ContrastRatio(ImU32 a, ImU32 b)
     return (hi + 0.05f) / (lo + 0.05f);
 }
 
+// From a toward b by amount, channel by channel; a's alpha.
+ImU32 Mix(ImU32 a, ImU32 b, float amount)
+{
+    int c[3];
+    const int shifts[3] = { IM_COL32_R_SHIFT, IM_COL32_G_SHIFT, IM_COL32_B_SHIFT };
+    for (int i = 0; i < 3; ++i)
+        {
+        const float x = Chan(a, shifts[i]), y = Chan(b, shifts[i]);
+        c[i] = std::clamp((int)((x + (y - x) * amount) * 255.0f + 0.5f), 0, 255);
+        }
+    return IM_COL32(c[0], c[1], c[2], (int)((a >> IM_COL32_A_SHIFT) & 0xFF));
+}
+
 Palette BuildPalette(const ThemeTokens& t)
 {
     Palette p;
@@ -153,6 +166,13 @@ Palette BuildPalette(const ThemeTokens& t)
     p.iconCode       = Lift(t.accent, d ? 0.25f : 0.0f, d);
     p.iconArchive    = t.inlineCodeText;
     p.iconExecutable = t.textMuted;
+
+    // Lighter on a light theme, where the text over it is dark.
+    const float steep = d ? 1.0f : 0.5f;
+    p.programsTab         = Mix(t.background, t.accent, 0.30f * steep);
+    p.programsTabHovered  = Mix(t.background, t.accent, 0.48f * steep);
+    p.programsTabSelected = Mix(t.background, t.accent, 0.62f * steep);
+    p.programsTabOverline = Lift(t.accent, 0.20f, d);
     return p;
 }
 
