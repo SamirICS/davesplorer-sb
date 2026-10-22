@@ -45,7 +45,10 @@ private:
     LONG m_refs = 1;   // lives on the stack; never deleted through Release
 };
 
-} // namespace
+// DoDragDrop has already returned by the time the host polls; the outcome
+// waits here for it.
+bool        g_haveOutcome = false;
+DragOutcome g_outcome = DragOutcome::Cancelled;
 
 bool DragFilesOut(const std::vector<std::string>& paths, DragOutcome& outcome, std::string& error)
 {
@@ -96,6 +99,32 @@ bool DragFilesOut(const std::vector<std::string>& paths, DragOutcome& outcome, s
     if (items) items->Release();
     for (PIDLIST_ABSOLUTE pidl : pidls) ILFree(pidl);
     return ok;
+}
+
+} // namespace
+
+void InitDragOut(SDL_Window*) {}
+void ShutdownDragOut() {}
+
+bool StartDragOut(const std::vector<std::string>& paths, std::string& error)
+{
+    const bool ok = DragFilesOut(paths, g_outcome, error);
+    g_haveOutcome = true;
+    return ok;
+}
+
+bool DragOutInProgress(bool& accepted)
+{
+    accepted = false;
+    return false;
+}
+
+bool PollDragOut(DragOutcome& outcome)
+{
+    if (!g_haveOutcome) return false;
+    g_haveOutcome = false;
+    outcome = g_outcome;
+    return true;
 }
 
 } // namespace platform

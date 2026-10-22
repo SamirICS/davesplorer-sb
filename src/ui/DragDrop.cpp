@@ -125,7 +125,8 @@ void FileDragSource(app::AppState& state, UiState& ui, app::Tab& tab, int entryI
         }
 
     // Past the window edge the drag belongs to the OS: other programs can
-    // only see it as an OLE drag, which the host starts after this frame.
+    // only see it as the desktop's own drag (OLE, XDND or Wayland), which
+    // the host starts after this frame.
     const ImGuiViewport* vp = ImGui::GetMainViewport();
     const ImVec2 m = ImGui::GetIO().MousePos;
     if (ImGui::IsMousePosValid(&m) &&

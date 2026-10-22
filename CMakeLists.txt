@@ -132,6 +132,9 @@ else()
     set(DSP_PLATFORM_EXT cpp)
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(GIO REQUIRED IMPORTED_TARGET gio-2.0)
+    # The drag sources talk to the display server directly; SDL loads the
+    # same libraries at run time, so both share one connection's state.
+    pkg_check_modules(DSP_DISPLAY REQUIRED IMPORTED_TARGET x11 xi wayland-client)
 endif()
 
 add_library(dsp_app STATIC
@@ -164,7 +167,8 @@ elseif(APPLE)
         "-framework QuickLookThumbnailing")
     target_compile_options(dsp_strict INTERFACE -Wall -Wextra -Wpedantic -Werror)
 else()
-    target_link_libraries(dsp_app PUBLIC PkgConfig::GIO SDL3::SDL3-static)
+    target_sources(dsp_app PRIVATE src/platform/linux/DragOutX11.cpp src/platform/linux/DragOutWayland.cpp)
+    target_link_libraries(dsp_app PUBLIC PkgConfig::GIO PkgConfig::DSP_DISPLAY SDL3::SDL3-static)
     target_compile_options(dsp_strict INTERFACE -Wall -Wextra -Wpedantic -Werror)
 endif()
 

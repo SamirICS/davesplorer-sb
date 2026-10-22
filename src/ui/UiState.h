@@ -143,7 +143,7 @@ struct UiState
     std::string dropHoverPath;
     std::string dropHoverPathNext;
     bool        rowDropHovered = false;      // a row took the drop this frame; the background must not
-    bool        externalDragRequested = false; // the drag left the window: the host hands it to OLE
+    bool        externalDragRequested = false; // the drag left the window: the host hands it to the desktop
 
     // A drag from another program, as SDL reports it.
     struct ExternalDrop

@@ -209,6 +209,7 @@ int RunApplication(int argc, char** argv)
     ImGui_ImplSDL3_InitForSDLRenderer(window, renderer);
     ImGui_ImplSDLRenderer3_Init(renderer);
     SDL_ShowWindow(window);
+    InitDragOut(window);
 
     bool running = true;
     while (running && !state.quitRequested)
@@ -263,6 +264,10 @@ int RunApplication(int argc, char** argv)
             while (SDL_PollEvent(&event));
             }
         PumpLayoutDialog(uiState);
+        // A drag handed to another program has ended; a move took items
+        // out of whatever folder is showing.
+        DragOutcome dragOutcome;
+        if (PollDragOut(dragOutcome)) app::RefreshAll(state);
         if (SDL_GetWindowFlags(window) & SDL_WINDOW_MINIMIZED)
             {
             SDL_Delay(50);
@@ -280,6 +285,12 @@ int RunApplication(int argc, char** argv)
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
         ui::DrawFrame(state, uiState);
+        // While a drag is out over other programs the window's cursor is
+        // the drag's cursor (X11 shows it for the whole implicit grab), so
+        // it says whether the program under it would take the drop.
+        bool dragAccepted = false;
+        if (DragOutInProgress(dragAccepted))
+            ImGui::SetMouseCursor(dragAccepted ? ImGuiMouseCursor_Hand : ImGuiMouseCursor_NotAllowed);
         ImGui::Render();
 
         const ImVec4& bg = ImGui::GetStyle().Colors[ImGuiCol_WindowBg];
@@ -299,10 +310,11 @@ int RunApplication(int argc, char** argv)
             uiState.fileDialogRequest = ui::FileDialog::None;
             }
 
-        // An in-app drag crossed the window edge: hand it to OLE so Explorer
-        // and other programs can take it. DoDragDrop blocks until the drop;
-        // the button-up happens while OLE has the mouse, so ImGui is told
-        // about it afterwards or it would keep dragging.
+        // An in-app drag crossed the window edge: hand it to the desktop so
+        // Explorer, a file manager, a browser or any other program can take
+        // it. From here the button-up belongs to the desktop's drag (OLE
+        // blocks until it; X11 and Wayland run alongside this loop), so
+        // ImGui is told now or it would keep dragging.
         if (uiState.externalDragRequested)
             {
             uiState.externalDragRequested = false;
@@ -310,10 +322,8 @@ int RunApplication(int argc, char** argv)
             uiState.dragPaths.clear();
             ImGui::ClearDragDrop();
             io.AddMouseButtonEvent(0, false);
-            DragOutcome outcome;
             std::string error;
-            if (!DragFilesOut(paths, outcome, error)) state.statusMessage = error;
-            app::RefreshAll(state);
+            if (!StartDragOut(paths, error)) state.statusMessage = error;
             }
         }
 
@@ -324,6 +334,7 @@ int RunApplication(int argc, char** argv)
     if (!state.settings.windowMaximized)
         SDL_GetWindowSize(window, &state.settings.windowWidth, &state.settings.windowHeight);
     app::SaveAppState(state);
+    ShutdownDragOut();
 
     app::treescan::Shutdown();           // joins the folder-walking thread
     ui::thumbnails::Shutdown();          // joins the decoder thread first

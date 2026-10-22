@@ -46,10 +46,21 @@ progress and conflict dialogs, and large operations run synchronously.
 
 File cut/copy/paste offers GNOME and KDE clipboard formats and URI lists.
 Incoming file drops and dragging between Davesplorer views are supported.
-**Dragging out to another application is not implemented on Linux yet; use
-copy/paste instead.** The tests use SDL’s dummy video driver so clipboard
-checks do not alter your desktop clipboard. External desktop interoperability
-still depends on the receiving application.
+The tests use SDL’s dummy video driver so clipboard checks do not alter your
+desktop clipboard. External desktop interoperability still depends on the
+receiving application.
+
+Dragging out works too: carry the selection past the window edge and drop it
+on Files, the desktop, an editor, a terminal, or a browser — a web chat’s
+message box takes it as an attachment. The items travel as a `text/uri-list`,
+the format all of those read, and the receiving program does the copying.
+A plain drag offers a copy; hold `Shift` to ask for a move, which a file
+manager honours and a browser ignores. `Escape` cancels. On X11 this is an
+XDND drag; on native Wayland it is the compositor’s own drag. GNOME before 48
+lacks the protocol SDL wants for Wayland, so there Davesplorer runs under
+XWayland, and Mutter carries the X11 drag over to Wayland programs such as
+Firefox. A sandboxed (Flatpak) program sees the drop but may not be allowed
+to read files outside its sandbox.
 
 “Open in system file manager” uses the desktop’s folder handler; revealing
 an item uses `org.freedesktop.FileManager1` with a folder-opening fallback.
