@@ -234,6 +234,8 @@ bool PathExists(const std::string& path)
     return GetFileAttributesW(Utf8ToWide(path).c_str()) != INVALID_FILE_ATTRIBUTES;
 }
 
+bool IsElfProgram(const std::string&) { return false; }
+
 bool IsDirectory(const std::string& path)
 {
     const DWORD a = GetFileAttributesW(Utf8ToWide(path).c_str());

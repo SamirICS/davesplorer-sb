@@ -370,6 +370,9 @@ void DrawRowContextMenu(app::AppState& state, UiState& ui, int tabIndex)
         OpenView(state, ui, focusedPath);
         return;
         }
+#ifdef __linux__
+    if (ImGui::MenuItem("Show programs under here", nullptr, false, focusedIsFolder)) OpenProgramsView(state, ui, focusedPath);
+#endif
     // The two ways to open an image, both always on offer whatever the
     // double-click preference says.
     if (ImGui::MenuItem("View in Davesplorer", nullptr, false, focusedIsImage)) OpenFileView(state, ui, focusedPath);
@@ -381,7 +384,7 @@ void DrawRowContextMenu(app::AppState& state, UiState& ui, int tabIndex)
         for (int i : app::SelectedIndices(tab))
             {
             const platform::FileEntry& e = tab.entries[(size_t)i];
-            if (e.isExecutable && !platform::RunExecutable(e.path, tab.path, error)) ShowError(ui, error);
+            if (e.isExecutable && !platform::RunExecutable(e.path, "", error)) ShowError(ui, error);
             }
         }
     // The dash, unlike Run, acts on the focused item alone: one label cannot
@@ -455,6 +458,9 @@ void DrawBackgroundContextMenu(app::AppState& state, UiState& ui, app::Tab& tab)
     if (ImGui::MenuItem("Select all", "Ctrl+A")) app::SelectAll(tab);
     ImGui::Separator();
     if (ImGui::MenuItem("Refresh", "F5")) app::Refresh(tab);
+#ifdef __linux__
+    if (ImGui::MenuItem("Show programs in this folder", "Ctrl+Shift+P", false, inFolder)) OpenProgramsView(state, ui, tab.path);
+#endif
     if (ImGui::MenuItem("Open terminal here", nullptr, false, inFolder))
         {
         std::string error;

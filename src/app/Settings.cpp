@@ -51,6 +51,7 @@ void ApplySettingLine(Settings& s, const std::string& key, const std::string& va
         }
     else if (key == "start_path")         s.startPath = value;
     else if (key == "remember_last_path") s.rememberLastPath = ParseBool(value);
+    else if (key == "programs_root")      s.programsRoot = value;
     else if (key == "window_width")       s.windowWidth = std::max(400, std::atoi(value.c_str()));
     else if (key == "window_height")      s.windowHeight = std::max(300, std::atoi(value.c_str()));
     else if (key == "window_maximized")   s.windowMaximized = ParseBool(value);
@@ -97,6 +98,7 @@ std::string SerializeSettings(const Settings& s)
     out << "thumbnail_size=" << s.thumbnailSize << '\n';
     out << "start_path=" << s.startPath << '\n';
     out << "remember_last_path=" << (s.rememberLastPath ? 1 : 0) << '\n';
+    if (!s.programsRoot.empty()) out << "programs_root=" << s.programsRoot << '\n';
     out << "window_width=" << s.windowWidth << '\n';
     out << "window_height=" << s.windowHeight << '\n';
     out << "window_maximized=" << (s.windowMaximized ? 1 : 0) << '\n';

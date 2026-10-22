@@ -73,6 +73,38 @@ bool OpenTerminalAt(const std::string& dir, std::string& error)
     error = "No supported terminal emulator was found.";
     return false;
 }
+bool RunInTerminal(const std::string& path, std::string& error)
+{
+    // The program goes in as $0 of a fixed script, never as text a shell
+    // parses. Once it exits the script says how, and leaves a shell open
+    // in the program's folder.
+    static const char* const kScript =
+        "cd -- \"${0%/*}\" && \"$0\"; s=$?; echo; echo \"[exited with status $s]\"; exec \"${SHELL:-/bin/sh}\"";
+    const std::string dir = std::filesystem::path(path).parent_path().string();
+    // How each terminal is told to run something: everything after the
+    // flag is the command and its arguments.
+    const std::pair<const char*, const char*> terminals[] = {
+        {"xdg-terminal-exec", nullptr}, {"x-terminal-emulator", "-e"}, {"gnome-terminal", "--"},
+        {"konsole", "-e"}, {"xterm", "-e"}};
+    for (const auto& [name, flag] : terminals)
+        {
+        char* executable = g_find_program_in_path(name);
+        if (!executable) continue;
+        std::vector<std::string> argv{executable};
+        if (flag) argv.push_back(flag);
+        argv.insert(argv.end(), {"/bin/sh", "-c", kScript, path});
+        g_free(executable);
+        std::vector<char*> args;
+        for (std::string& a : argv) args.push_back(a.data());
+        args.push_back(nullptr);
+        GError* e = nullptr;
+        const bool ok = g_spawn_async(dir.empty() ? nullptr : dir.c_str(), args.data(), nullptr, G_SPAWN_DEFAULT,
+                                      nullptr, nullptr, nullptr, &e);
+        return Finish(ok, e, error);
+        }
+    error = "No supported terminal emulator was found.";
+    return false;
+}
 bool RunExecutable(const std::string& path, const std::string& workingDir, std::string& error)
 {
     const std::string dir = workingDir.empty() ? std::filesystem::path(path).parent_path().string() : workingDir;

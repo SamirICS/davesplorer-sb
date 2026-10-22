@@ -1,6 +1,7 @@
 #include "platform/FileSystem.h"
 #include "platform/Strings.h"
 #include <gio/gio.h>
+#include <algorithm>
 #include <filesystem>
 #include <ctime>
 #include <fstream>
@@ -73,6 +74,49 @@ bool PathExists(const std::string& path)
 {
     std::error_code ec;
     return fs::exists(fs::symlink_status(path, ec));
+}
+bool IsElfProgram(const std::string& path)
+{
+    // A library that can also be run (libc.so.6 prints its version) has an
+    // interpreter like any program; its name is what says it is a library.
+    const std::string name = fs::path(path).filename().string();
+    if ((name.size() > 3 && name.compare(name.size() - 3, 3, ".so") == 0) || name.find(".so.") != std::string::npos)
+        return false;
+    // Non-blocking, so a FIFO with the execute bit cannot hang the open.
+    const int fd = open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NOCTTY | O_NONBLOCK);
+    if (fd < 0) return false;
+    struct stat st{};
+    unsigned char h[64] = {};
+    const bool regular = fstat(fd, &st) == 0 && S_ISREG(st.st_mode);
+    const bool header = regular && pread(fd, h, sizeof(h), 0) == (ssize_t)sizeof(h) &&
+                        h[0] == 0x7f && h[1] == 'E' && h[2] == 'L' && h[3] == 'F' &&
+                        (h[4] == 1 || h[4] == 2) && (h[5] == 1 || h[5] == 2);
+    bool program = false;
+    if (header)
+        {
+        const bool wide = h[4] == 2, little = h[5] == 1;
+        auto get = [&](const unsigned char* p, int bytes) {
+            uint64_t v = 0;
+            for (int i = 0; i < bytes; ++i) v |= (uint64_t)p[little ? i : bytes - 1 - i] << (8 * i);
+            return v;
+        };
+        const uint64_t type = get(h + 16, 2);
+        if (type == 2) program = true;   // ET_EXEC
+        else if (type == 3)              // ET_DYN: a program only with PT_INTERP
+            {
+            const uint64_t phoff = wide ? get(h + 32, 8) : get(h + 28, 4);
+            const uint64_t phentsize = get(h + (wide ? 54 : 42), 2);
+            const uint64_t phnum = std::min<uint64_t>(get(h + (wide ? 56 : 44), 2), 256);
+            for (uint64_t i = 0; i < phnum && phentsize >= 4 && !program; ++i)
+                {
+                unsigned char t[4];
+                if (pread(fd, t, 4, (off_t)(phoff + i * phentsize)) != 4) break;
+                program = get(t, 4) == 3;
+                }
+            }
+        }
+    close(fd);
+    return program;
 }
 bool IsDirectory(const std::string& path)
 {

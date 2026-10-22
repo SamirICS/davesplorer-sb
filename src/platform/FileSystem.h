@@ -68,6 +68,12 @@ std::vector<KnownFolder> GetKnownFolders();
 bool PathExists(const std::string& path);
 bool IsDirectory(const std::string& path);
 
+// A compiled program rather than a script, a library or data with the
+// execute bit: on Linux an ELF file that is an executable, or a
+// position-independent one (a shared object with an interpreter). The
+// caller has checked the execute bit already. False on other platforms.
+bool IsElfProgram(const std::string& path);
+
 // "Text Document", "File folder", "PNG File"... as the shell names them.
 std::string FileTypeName(const std::string& extension, bool isDirectory);
 

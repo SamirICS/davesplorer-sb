@@ -70,6 +70,12 @@ bool OpenTerminalAt(const std::string& dir, std::string& error)
         return false;
         }
 }
+bool RunInTerminal(const std::string& path, std::string& error)
+{
+    (void)path;
+    error = "Running in a terminal isn't available here yet.";
+    return false;
+}
 bool RunExecutable(const std::string& path, const std::string& workingDir, std::string& error)
 {
     // An .app is a bundle, not a program file; the workspace launches it.

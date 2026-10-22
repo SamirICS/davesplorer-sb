@@ -143,6 +143,7 @@ add_library(dsp_app STATIC
     src/app/PathUtil.cpp
     src/app/Listing.cpp
     src/app/TreeScan.cpp
+    src/app/ProgramScan.cpp
     src/app/Navigation.cpp
     src/app/Selection.cpp
     src/app/Settings.cpp
@@ -184,6 +185,7 @@ add_library(dsp_ui STATIC
     src/ui/FilesPane.cpp
     src/ui/FileGrid.cpp
     src/ui/ImageView.cpp
+    src/ui/ProgramsView.cpp
     src/ui/Layouts.cpp
     src/ui/Textures.cpp
     src/ui/Thumbnails.cpp

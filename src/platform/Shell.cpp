@@ -124,6 +124,13 @@ bool RunExecutable(const std::string& path, const std::string& workingDir, std::
     return Execute(L"open", Utf8ToWide(path), L"", Utf8ToWide(dir), error);
 }
 
+bool RunInTerminal(const std::string& path, std::string& error)
+{
+    (void)path;
+    error = "Running in a terminal isn't available here yet.";
+    return false;
+}
+
 // Windows has refused programmatic taskbar pinning since Windows 10: there
 // is no supported call, and the dash is a GNOME idea in any case.
 bool CanPinApplications() { return false; }

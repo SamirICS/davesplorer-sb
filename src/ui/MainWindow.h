@@ -44,6 +44,16 @@ inline ImGuiID FileViewWindowId(int id) { return ImHashStr(("###file" + std::to_
 int  OpenFileView(app::AppState& state, UiState& ui, const std::string& path);
 void CloseFileView(app::AppState& state, UiState& ui, int id);
 
+// The Programs window: every program under a folder, by project. Titled
+// after the folder, with the same stable-id scheme as the other windows.
+std::string ProgramsWindowName(const app::AppState& state, const app::ProgramsView& view);
+inline ImGuiID ProgramsWindowId(int id) { return ImHashStr(("###programs" + std::to_string(id)).c_str()); }
+// Opens (or focuses) one on root, docked beside the active folder view.
+int  OpenProgramsView(app::AppState& state, UiState& ui, const std::string& root);
+void CloseProgramsView(app::AppState& state, UiState& ui, int id);
+// Returns true when the user closed it.
+bool DrawProgramsView(app::AppState& state, UiState& ui, int index);
+
 // Saved layouts. Capture reads the dockspace's current tree; Apply replaces
 // every view with the layout's and rebuilds the tree, so it must run before
 // DockSpace() in the frame. Both are what File > Save layout / Open layout

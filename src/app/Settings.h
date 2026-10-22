@@ -51,6 +51,7 @@ struct Settings
     int   thumbnailSize = 96;      // unscaled pixels, one of kThumbnailSizes
     std::string startPath;         // where the first tab opens; "" is This PC
     bool  rememberLastPath = true;
+    std::string programsRoot;      // the folder of the Programs window open at exit, reopened at start
 
     std::vector<PinnedView>  pinnedViews;
     std::vector<std::string> recentLayouts;   // newest first, at most kRecentLayouts

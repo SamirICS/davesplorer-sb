@@ -4,6 +4,7 @@
 
 #include "app/Settings.h"
 #include "app/Tab.h"
+#include "app/ProgramScan.h"
 #include "app/Undo.h"
 #include "platform/FileSystem.h"
 
@@ -47,6 +48,7 @@ struct AppState
     int nextTabId = 1;
 
     std::vector<FileView> fileViews;
+    std::vector<ProgramsView> programViews;   // the Programs windows, each walking its own folder
 
     // Pinned folders that were not there at startup (a drive not mounted):
     // kept in the settings rather than forgotten, and tried again next time.

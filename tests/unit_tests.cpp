@@ -338,6 +338,133 @@ void TestLinuxExecutables()
     CHECK(!error.empty());
 }
 
+// The Programs view's walk: compiled programs only, the noise skipped, and
+// grouped by project with the newest build first.
+void TestProgramScan()
+{
+    namespace fs = std::filesystem;
+    TempDir tmp("programs");
+    std::string error;
+    // A real program and a real library to copy, so the ELF check sees
+    // what a build produces.
+    const std::string elf = "/usr/bin/true";
+    std::string lib;
+    for (const char* candidate : { "/lib/x86_64-linux-gnu/libz.so.1", "/usr/lib/x86_64-linux-gnu/libz.so.1",
+                                   "/lib/aarch64-linux-gnu/libz.so.1", "/usr/lib/libz.so.1", "/usr/lib64/libz.so.1" })
+        if (platform::PathExists(candidate)) lib = candidate;
+    CHECK(platform::PathExists(elf));
+    auto place = [&](const std::string& rel, const std::string& from, bool executable) {
+        const fs::path dest = fs::path(tmp.path) / rel;
+        fs::create_directories(dest.parent_path());
+        fs::copy_file(from, dest, fs::copy_options::overwrite_existing);
+        fs::permissions(dest, fs::perms::owner_read | fs::perms::owner_write |
+                                  (executable ? fs::perms::owner_exec : fs::perms::none));
+        return dest.string();
+    };
+    const std::string app = place("projA/build/stage/app", elf, true);
+    const std::string tool = place("projB/out/tool", elf, true);
+    const std::string top = place("toplevel", elf, true);
+    place("projA/build/CMakeFiles/3.28/CompilerIdC/a.out", elf, true);   // CMake's scratch
+    place("projA/build/_deps/sdl3-build/testprog", elf, true);           // someone else's tests
+    place("projA/.git/hooks/hook", elf, true);                           // hidden
+    place("projA/node_modules/x/bin", elf, true);
+    // Cargo: the program beside its profile's lock, its hashed copies and
+    // build scripts in deps and build.
+    const std::string cargo = place("projC/target/release/cli", elf, true);
+    tmp.file("projC/target/release/.cargo-lock", "");
+    place("projC/target/release/deps/cli-0123456789abcdef", elf, true);
+    place("projC/target/release/build/cli-0123456789abcdef/build-script-build", elf, true);
+    const std::string example = place("projC/target/release/examples/demo", elf, true);
+    place("projC/target/release/examples/demo-0123456789abcdef", elf, true);
+    const std::string notExecutable = place("projA/data/copy", elf, false);
+    const std::string script = tmp.file("projA/run.sh", "#!/bin/sh\necho hi\n");
+    fs::permissions(script, fs::perms::owner_exec, fs::perm_options::add);
+    fs::create_directory_symlink(fs::path(tmp.path) / "projA", fs::path(tmp.path) / "projA/loop");
+    fs::create_symlink(app, fs::path(tmp.path) / "projB/app-link");
+
+    // The ELF check on its own.
+    CHECK(platform::IsElfProgram(app));
+    CHECK(!platform::IsElfProgram(script));
+    CHECK(!platform::IsElfProgram(app::JoinPath(tmp.path, "projA")));
+    if (!lib.empty())
+        {
+        // A library is not a program, by its name or, renamed, by having
+        // no interpreter.
+        CHECK(!platform::IsElfProgram(place("projA/lib/libz.so.1", lib, true)));
+        CHECK(!platform::IsElfProgram(place("projA/lib/zlib-renamed", lib, true)));
+        }
+
+    // projB was built last.
+    const auto now = fs::file_time_type::clock::now();
+    fs::last_write_time(app, now - std::chrono::hours(48));
+    fs::last_write_time(top, now - std::chrono::hours(72));
+    fs::last_write_time(tool, now - std::chrono::hours(1));
+    fs::last_write_time(cargo, now - std::chrono::hours(24));
+    fs::last_write_time(example, now - std::chrono::hours(30));
+
+    CHECK(app::SkipFolderForPrograms("CMakeFiles"));
+    CHECK(app::SkipFolderForPrograms("_deps"));
+    CHECK(!app::SkipFolderForPrograms("build"));
+    CHECK(!app::SkipFolderForPrograms("deps"));
+    CHECK(app::SkipFolderForPrograms("deps", true));
+
+    app::AppState state;
+    CHECK_EQ(app::OpenProgramsView(state, tmp.path), 0);
+    CHECK_EQ(app::OpenProgramsView(state, tmp.path), 0);   // the same folder: the same view
+    CHECK(state.programViews[0].scanning);
+    for (int i = 0; i < 4000 && state.programViews[0].scanning; ++i)
+        {
+        app::TickAppState(state);
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    const app::ProgramsView& view = state.programViews[0];
+    CHECK(!view.scanning);
+    CHECK(!view.truncated);
+    CHECK(view.folders > 5);
+    CHECK_EQ(view.programs.size(), (size_t)5);
+    for (const app::Program& p : view.programs)
+        {
+        if (p.path == app)
+            {
+            CHECK_EQ(p.project, "projA");
+            CHECK_EQ(p.relDir, "build/stage");
+            CHECK_EQ(p.name, "app");
+            }
+        if (p.path == tool) CHECK_EQ(p.relDir, "out");
+        if (p.path == cargo) CHECK_EQ(p.relDir, "target/release");
+        if (p.path == example) CHECK_EQ(p.relDir, "target/release/examples");
+        if (p.path == top) CHECK_EQ(p.project, "");
+        CHECK(p.path != notExecutable);
+        }
+
+    const std::vector<app::ProgramGroup> groups = app::GroupPrograms(view.programs, "");
+    CHECK_EQ(groups.size(), (size_t)4);
+    if (groups.size() == 4)
+        {
+        CHECK_EQ(groups[0].project, "projB");
+        CHECK_EQ(groups[1].project, "projC");
+        CHECK_EQ(groups[2].project, "projA");
+        CHECK_EQ(groups[3].project, "");
+        }
+    // The search looks at the path, not only the name, and ignores case.
+    const std::vector<app::ProgramGroup> stage = app::GroupPrograms(view.programs, "STAGE");
+    CHECK_EQ(stage.size(), (size_t)1);
+    if (stage.size() == 1) CHECK_EQ(view.programs[(size_t)stage[0].rows[0]].path, app);
+    CHECK(app::GroupPrograms(view.programs, "nothing-like-this").empty());
+
+    // A rescan starts over and finds the same.
+    app::RescanPrograms(state.programViews[0]);
+    CHECK(state.programViews[0].programs.empty());
+    for (int i = 0; i < 4000 && state.programViews[0].scanning; ++i)
+        {
+        app::TickAppState(state);
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    CHECK_EQ(state.programViews[0].programs.size(), (size_t)5);
+    app::CloseProgramsView(state, 0);
+    CHECK(state.programViews.empty());
+}
+
 // How many times the dash holds this id. Safe to call only once
 // CanPinApplications() has said the schema is there: g_settings_new aborts
 // the process when it is not.
@@ -1524,6 +1651,7 @@ int main()
 #endif
 #ifdef __linux__
     TestLinuxExecutables();
+    TestProgramScan();
     TestLinuxDashPinning();
 #endif
     TestSettings();
@@ -1539,6 +1667,7 @@ int main()
     TestGitRemotes();
     TestExpandedTree();
     app::treescan::Shutdown();   // joins the folder-walking thread
+    app::programscan::Shutdown();
     std::printf("%d checks, %d failures\n", g_checks, g_failures);
     return g_failures;
 }

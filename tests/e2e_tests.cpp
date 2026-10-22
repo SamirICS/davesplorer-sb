@@ -141,6 +141,7 @@ void GoToScratch(ImGuiTestContext* ctx, Fixture& fx)
     fx.state.settings.uiScale = 1.0f;
     fx.state.settings.showHidden = false;
     fx.state.undoHistory.clear();
+    while (!fx.state.programViews.empty()) app::CloseProgramsView(fx.state, 0);
     fx.ui = ui::UiState{};
     // A test that failed with a dialog up must not leave it over the next.
     ctx->PopupCloseAll();
@@ -1176,6 +1177,69 @@ void RegisterTests(ImGuiTestEngine* e)
         IM_CHECK(fx.ui.dialogMessage.empty());
     };
 
+#ifdef __linux__
+    t = IM_REGISTER_TEST(e, "explorer", "programs_view_lists_and_opens_folder");
+    t->TestFunc = [](ImGuiTestContext* ctx) {
+        Fixture& fx = *g_fx;
+        GoToScratch(ctx, fx);
+        // A compiled program two folders down, and a script that is not one.
+        const std::string deeper = app::JoinPath(app::JoinPath(fx.root, "sub"), "deeper");
+        const std::string tool = app::JoinPath(deeper, "tool");
+        std::filesystem::copy_file("/usr/bin/true", tool);
+        std::filesystem::permissions(tool, std::filesystem::perms::owner_all);
+        const std::string script = app::JoinPath(deeper, "helper.sh");
+        WriteFile(script, "#!/bin/sh\n");
+        std::filesystem::permissions(script, std::filesystem::perms::owner_exec, std::filesystem::perm_options::add);
+
+        RefActiveView(ctx, fx);
+        ctx->ItemClick("**/###sub", ImGuiMouseButton_Right);
+        ctx->Yield(2);
+        ctx->SetRef("//$FOCUSED");
+        ctx->ItemClick("Show programs under here");
+        ctx->Yield(2);
+        IM_CHECK_EQ(fx.state.programViews.size(), (size_t)1);
+        for (int i = 0; i < 600 && fx.state.programViews[0].scanning; ++i) ctx->Yield();
+        const app::ProgramsView& view = fx.state.programViews[0];
+        IM_CHECK(!view.scanning);
+        IM_CHECK_EQ(view.programs.size(), (size_t)1);
+        IM_CHECK_STR_EQ(view.programs[0].project.c_str(), "deeper");
+        ctx->Yield(2);
+
+        // Its own window, with the program's row in it.
+        const ImGuiTestRef win(ui::ProgramsWindowId(view.id));
+        IM_CHECK(ctx->WindowInfo(win).Window != nullptr);
+        ctx->SetRef(win);
+        IM_CHECK(ctx->ItemExists("**/###deeper|tool"));
+
+        // A search with no match empties it; one on the path finds it.
+        ctx->ItemInputValue("##filter", "nothing-like-this");
+        ctx->Yield(2);
+        IM_CHECK(!ctx->ItemExists("**/###deeper|tool"));
+        ctx->ItemInputValue("##filter", "DEEPER");
+        ctx->Yield(2);
+        IM_CHECK(ctx->ItemExists("**/###deeper|tool"));
+
+        // Open containing folder: a view on deeper, the program selected.
+        ctx->ItemClick("**/###deeper|tool", ImGuiMouseButton_Right);
+        ctx->Yield(2);
+        ctx->SetRef("//$FOCUSED");
+        ctx->ItemClick("Open containing folder");
+        ctx->Yield(4);
+        IM_CHECK_EQ(fx.state.tabs.size(), (size_t)2);
+        const app::Tab& opened = fx.state.tabs[1];
+        IM_CHECK_STR_EQ(opened.path.c_str(), deeper.c_str());
+        bool toolSelected = false;
+        for (size_t i = 0; i < opened.entries.size(); ++i)
+            if (opened.entries[i].name == "tool") toolSelected = opened.selected[i] != 0;
+        IM_CHECK(toolSelected);
+
+        // Closed with its window, the walk forgotten.
+        ui::CloseProgramsView(fx.state, fx.ui, view.id);
+        ctx->Yield(2);
+        IM_CHECK(fx.state.programViews.empty());
+    };
+#endif
+
     // The dash: pinning a program from the context menu, and the entry
     // turning into its own way back out. Runs only against the isolated
     // GSettings backend ctest provides, never a real desktop's dash.
@@ -1679,6 +1743,7 @@ int main(int argc, char** argv)
         }
 
     app::treescan::Shutdown();
+    app::programscan::Shutdown();
     ui::thumbnails::Shutdown();
     ui::textures::ReleaseAll();
     ImGuiTestEngine_Stop(engine);

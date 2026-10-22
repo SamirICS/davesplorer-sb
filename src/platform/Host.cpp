@@ -337,6 +337,7 @@ int RunApplication(int argc, char** argv)
     ShutdownDragOut();
 
     app::treescan::Shutdown();           // joins the folder-walking thread
+    app::programscan::Shutdown();        // and the program-finding one
     ui::thumbnails::Shutdown();          // joins the decoder thread first
     ImGui_ImplSDLRenderer3_Shutdown();   // destroys the GPU side of every texture, ours included
     ui::textures::ReleaseAll();

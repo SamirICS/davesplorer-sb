@@ -41,6 +41,10 @@ bool OpenTerminalAt(const std::string& dir, std::string& error);
 // empty -- so a program finds the files it keeps beside itself.
 bool RunExecutable(const std::string& path, const std::string& workingDir, std::string& error);
 
+// The same, in a terminal window that stays open once it exits, so a
+// command-line program's output can be read. Run in its own folder.
+bool RunInTerminal(const std::string& path, std::string& error);
+
 // The desktop's list of pinned applications -- the GNOME dash. Only GNOME
 // keeps one we can write, so this is false everywhere else and the menu
 // entry stays greyed out.

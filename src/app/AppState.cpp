@@ -68,6 +68,10 @@ void InitAppState(AppState& state, const std::string& exeDir, const std::string&
         tab.viewMode = pin.viewMode;
         }
     state.nextTabId = maxId + 1;
+    // The Programs window open at the last exit, if its folder is still there.
+    while (!state.programViews.empty()) CloseProgramsView(state, 0);
+    if (!state.settings.programsRoot.empty() && platform::IsDirectory(state.settings.programsRoot))
+        OpenProgramsView(state, state.settings.programsRoot);
     for (int i = 0; i < (int)state.tabs.size(); ++i)
         if (state.tabs[(size_t)i].path == NormalizePath(start))
             {
@@ -133,6 +137,7 @@ void SaveAppState(AppState& state)
         if (tab.pinned) state.settings.pinnedViews.push_back(PinnedView{ tab.id, tab.path, tab.viewMode });
     for (const PinnedView& pin : state.unavailablePins)
         state.settings.pinnedViews.push_back(pin);
+    state.settings.programsRoot = state.programViews.empty() ? std::string() : state.programViews.back().root;
     std::string error;
     SaveSettings(state.settingsFile, state.settings, error);
 }
@@ -178,6 +183,7 @@ void TickAppState(AppState& state)
     // Folders read in the background land first, so a view that is filling
     // in never skips a frame behind a reload.
     PumpTreeScan(state);
+    PumpProgramScans(state);
     for (Tab& tab : state.tabs)
         ReloadIfNeeded(tab, state.settings);
 

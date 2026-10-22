@@ -97,6 +97,19 @@ struct FileViewUi
     int                      siblingIndex = -1;
 };
 
+// Per-Programs-window interface state, keyed by the view's id.
+struct ProgramsViewUi
+{
+    bool    shown = false;
+    bool    wantFocus = false;
+    ImGuiID dockId = 0;
+    ImGuiID dockHint = 0;
+    bool    filterWantFocus = false;
+
+    std::string selectedPath;                       // the row last clicked
+    std::unordered_map<std::string, bool> collapsed; // project groups closed by hand
+};
+
 struct UiState
 {
     std::unordered_map<int, ViewUi> views;
@@ -105,6 +118,9 @@ struct UiState
     std::unordered_map<int, FileViewUi> fileViews;
     FileViewUi& fileView(int id) { return fileViews[id]; }
     int activeFileView = -1;       // the focused file view's id, -1 when a folder view has focus
+
+    std::unordered_map<int, ProgramsViewUi> programViews;
+    ProgramsViewUi& programsView(int id) { return programViews[id]; }
 
     // View > Split: open a new view beside the given one.
     struct SplitRequest
