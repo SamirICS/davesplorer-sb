@@ -8,6 +8,7 @@
 #include "platform/Strings.h"
 
 #include <cctype>
+#include <set>
 #ifndef _WIN32
 #include <sys/stat.h>
 #include <filesystem>
@@ -42,6 +43,23 @@ bool NameExists(const Tab& tab, const std::string& name)
     return false;
 }
 
+// "'a.txt'" for one item, "3 items" for more: the subject of an undo label.
+std::string Subject(const std::vector<UndoItem>& items)
+{
+    if (items.size() != 1) return std::to_string(items.size()) + " items";
+    return "'" + PathName(items[0].from) + "'";
+}
+
+std::set<std::string> NamesIn(const std::string& dir)
+{
+    std::set<std::string> names;
+    std::vector<platform::FileEntry> entries;
+    std::string error;
+    if (platform::ListDirectory(dir, entries, error))
+        for (const platform::FileEntry& e : entries) names.insert(PathKey(e.name));
+    return names;
+}
+
 } // namespace
 
 bool OpenEntry(AppState& state, Tab& tab, int entryIndex, std::string& error)
@@ -68,7 +86,7 @@ std::string UniqueNewName(const Tab& tab, const std::string& base)
     return base;
 }
 
-bool CreateFolderIn(Tab& tab, const std::string& name, std::string& error)
+bool CreateFolderIn(AppState& state, Tab& tab, const std::string& name, std::string& error)
 {
     if (tab.path.empty())
         {
@@ -76,12 +94,14 @@ bool CreateFolderIn(Tab& tab, const std::string& name, std::string& error)
         return false;
         }
     if (!IsValidFileName(name, error)) return false;
-    if (!platform::CreateFolder(JoinPath(tab.path, name), error)) return false;
+    const std::string path = JoinPath(tab.path, name);
+    if (!platform::CreateFolder(path, error)) return false;
+    RecordUndo(state, { UndoKind::Create, { { "", path } }, "New folder '" + name + "'" });
     Refresh(tab);
     return true;
 }
 
-bool CreateFileIn(Tab& tab, const std::string& name, std::string& error)
+bool CreateFileIn(AppState& state, Tab& tab, const std::string& name, std::string& error)
 {
     if (tab.path.empty())
         {
@@ -89,12 +109,14 @@ bool CreateFileIn(Tab& tab, const std::string& name, std::string& error)
         return false;
         }
     if (!IsValidFileName(name, error)) return false;
-    if (!platform::CreateEmptyFile(JoinPath(tab.path, name), error)) return false;
+    const std::string path = JoinPath(tab.path, name);
+    if (!platform::CreateEmptyFile(path, error)) return false;
+    RecordUndo(state, { UndoKind::Create, { { "", path } }, "New file '" + name + "'" });
     Refresh(tab);
     return true;
 }
 
-bool RenameEntry(Tab& tab, int entryIndex, const std::string& newName, std::string& error)
+bool RenameEntry(AppState& state, Tab& tab, int entryIndex, const std::string& newName, std::string& error)
 {
     if (entryIndex < 0 || entryIndex >= (int)tab.entries.size()) return false;
     if (tab.path.empty())
@@ -107,12 +129,14 @@ bool RenameEntry(Tab& tab, int entryIndex, const std::string& newName, std::stri
     if (newName == e.name) return true;
     // Its own folder, which is tab.path for an ordinary row but not for one
     // that came out of an expanded subfolder -- renaming must not move it.
-    if (!platform::RenamePath(e.path, JoinPath(ParentPath(e.path), newName), error)) return false;
+    const std::string from = e.path, to = JoinPath(ParentPath(e.path), newName);
+    if (!platform::RenamePath(from, to, error)) return false;
+    RecordUndo(state, { UndoKind::Rename, { { from, to } }, "Rename '" + e.name + "' to '" + newName + "'" });
     Refresh(tab);
     return true;
 }
 
-bool DeleteSelected(Tab& tab, bool permanent, std::string& error)
+bool DeleteSelected(AppState& state, Tab& tab, bool permanent, std::string& error)
 {
     if (tab.path.empty())
         {
@@ -123,6 +147,16 @@ bool DeleteSelected(Tab& tab, bool permanent, std::string& error)
     if (paths.empty()) return true;
     const bool ok = permanent ? platform::DeletePermanently(paths, error)
                               : platform::MoveToRecycleBin(paths, error);
+    if (!permanent)
+        {
+        // Whatever left the folder went to the Recycle Bin, even when a
+        // later item failed.
+        UndoEntry entry{ UndoKind::Trash, {}, {} };
+        for (const std::string& p : paths)
+            if (!platform::PathExists(p)) entry.items.push_back({ p, "" });
+        entry.label = "Delete " + Subject(entry.items);
+        RecordUndo(state, std::move(entry));
+        }
     // Even a partial failure changes the folder, so reload either way.
     Refresh(tab);
     return ok;
@@ -152,10 +186,19 @@ bool Paste(AppState& state, Tab& tab, std::string& error)
     std::vector<std::string> paths;
     bool cut = false;
     if (!platform::GetClipboardFiles(paths, cut)) return false;
-    const bool ok = DropPaths(state, paths, tab.path, cut ? DropAction::Move : DropAction::Copy, error);
+    return PastePaths(state, paths, cut, tab.path, error);
+}
+
+bool PastePaths(AppState& state, const std::vector<std::string>& paths, bool cut, const std::string& destDir,
+                std::string& error)
+{
+    const bool ok = DropPaths(state, paths, destDir, cut ? DropAction::Move : DropAction::Copy, error);
     // A cut is one-shot: Explorer empties the clipboard after the move so
-    // a second paste cannot move the files again.
-    if (ok && cut)
+    // a second paste cannot move the files again. Only while it still holds
+    // that cut, though; something copied since is not ours to throw away.
+    std::vector<std::string> now;
+    bool nowCut = false;
+    if (ok && cut && platform::GetClipboardFiles(now, nowCut) && nowCut && now == paths)
         {
         platform::ClearClipboard();
         state.clipboard = Clipboard{};
@@ -211,6 +254,14 @@ bool CanDropOn(const std::vector<std::string>& sources, const std::string& destD
 #endif
 }
 
+bool WouldMove(const std::vector<std::string>& sources, const std::string& destDir)
+{
+    if (!CanDropOn(sources, destDir)) return false;
+    for (const std::string& p : sources)
+        if (PathKey(ParentPath(p)) != PathKey(destDir)) return true;
+    return false;
+}
+
 bool DropPaths(AppState& state, const std::vector<std::string>& sources, const std::string& destDir,
                DropAction action, std::string& error)
 {
@@ -229,14 +280,42 @@ bool DropPaths(AppState& state, const std::vector<std::string>& sources, const s
         if (PathKey(ParentPath(p)) != PathKey(destDir)) sameFolder = false;
 
     bool ok = true;
+    const std::string where = LocationTitle(state, destDir);
     if (action == DropAction::Move)
         {
         // Moving files onto the folder they are in is a no-op, not an error.
-        if (!sameFolder) ok = platform::MovePaths(sources, destDir, error);
+        if (sameFolder)
+            {
+            RefreshAll(state);
+            return true;
+            }
+        ok = platform::MovePaths(sources, destDir, error);
+        // What moved is what left its folder and arrived under its own name;
+        // after a partial failure that is only some of them.
+        UndoEntry entry{ UndoKind::Move, {}, {} };
+        for (const std::string& src : sources)
+            {
+            const std::string dest = JoinPath(destDir, PathName(src));
+            if (!platform::PathExists(src) && platform::PathExists(dest)) entry.items.push_back({ src, dest });
+            }
+        entry.label = "Move " + Subject(entry.items) + " to " + where;
+        RecordUndo(state, std::move(entry));
         }
     else
         {
+        // A copy into its own folder gets a new name ("a - Copy.txt"), and
+        // the shell picks it, so the copies are found as what is new.
+        const std::set<std::string> before = NamesIn(destDir);
         ok = platform::CopyPaths(sources, destDir, sameFolder, error);
+        UndoEntry entry{ UndoKind::Copy, {}, {} };
+        std::vector<platform::FileEntry> after;
+        std::string listError;
+        if (platform::ListDirectory(destDir, after, listError))
+            for (const platform::FileEntry& e : after)
+                if (!before.count(PathKey(e.name))) entry.items.push_back({ "", e.path });
+        entry.label = "Copy " + (sources.size() == 1 ? "'" + PathName(sources[0]) + "'"
+                                                     : std::to_string(sources.size()) + " items") + " to " + where;
+        RecordUndo(state, std::move(entry));
         }
     RefreshAll(state);
     return ok;

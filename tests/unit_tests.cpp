@@ -659,14 +659,14 @@ void TestFileOps()
     app::ReloadIfNeeded(tab, state.settings);
 
     CHECK_EQ(app::UniqueNewName(tab, "New folder"), "New folder");
-    CHECK(app::CreateFolderIn(tab, "New folder", error));
+    CHECK(app::CreateFolderIn(state, tab, "New folder", error));
     app::ReloadIfNeeded(tab, state.settings);
     CHECK_EQ(app::UniqueNewName(tab, "New folder"), "New folder (2)");
     CHECK_EQ(app::UniqueNewName(tab, "a.txt"), "a (2).txt");
-    CHECK(!app::CreateFolderIn(tab, "bad/name", error));
+    CHECK(!app::CreateFolderIn(state, tab, "bad/name", error));
     CHECK(!error.empty());
 
-    CHECK(app::CreateFileIn(tab, "b.txt", error));
+    CHECK(app::CreateFileIn(state, tab, "b.txt", error));
     app::ReloadIfNeeded(tab, state.settings);
     CHECK(platform::PathExists(app::JoinPath(tmp.path, "b.txt")));
 
@@ -674,7 +674,7 @@ void TestFileOps()
     for (size_t i = 0; i < tab.entries.size(); ++i)
         if (tab.entries[i].name == "a.txt") idx = (int)i;
     CHECK(idx >= 0);
-    CHECK(app::RenameEntry(tab, idx, "renamed.txt", error));
+    CHECK(app::RenameEntry(state, tab, idx, "renamed.txt", error));
     app::ReloadIfNeeded(tab, state.settings);
     CHECK(platform::PathExists(app::JoinPath(tmp.path, "renamed.txt")));
     CHECK(!platform::PathExists(app::JoinPath(tmp.path, "a.txt")));
@@ -719,14 +719,14 @@ void TestFileOps()
 
     // Permanent delete of the selection.
     app::SelectAll(tab);
-    CHECK(app::DeleteSelected(tab, true, error));
+    CHECK(app::DeleteSelected(state, tab, true, error));
     app::ReloadIfNeeded(tab, state.settings);
     CHECK_EQ(tab.entries.size(), (size_t)0);
 
     // Nothing can be created or deleted in This PC.
     CHECK(app::NavigateTo(tab, "", error));
-    CHECK(!app::CreateFolderIn(tab, "x", error));
-    CHECK(!app::DeleteSelected(tab, true, error));
+    CHECK(!app::CreateFolderIn(state, tab, "x", error));
+    CHECK(!app::DeleteSelected(state, tab, true, error));
 }
 
 void TestClipboardAndDrop()
@@ -790,6 +790,118 @@ void TestClipboardAndDrop()
     CHECK(!app::DropPaths(state, { sub }, deep, app::DropAction::Move, error));
     CHECK(!error.empty());
     CHECK(!app::DropPaths(state, { b }, "", app::DropAction::Copy, error));
+}
+
+// Every kind of entry undone against the real disk, and the refusals that
+// keep undo from overwriting or throwing away what changed since. The
+// Recycle Bin is the test's own (ctest points XDG_DATA_HOME at the build).
+void TestUndo()
+{
+    TempDir tmp("undo");
+    const std::string a = tmp.file("a.txt", "aaa");
+    const std::string sub = tmp.dir("sub");
+    app::AppState state;
+    state.tabs.emplace_back();
+    app::Tab& tab = state.active();
+    std::string error;
+    CHECK(app::NavigateTo(tab, tmp.path, error));
+    app::ReloadIfNeeded(tab, state.settings);
+    auto select = [&](const char* name) {
+        app::ReloadIfNeeded(tab, state.settings);
+        app::ClearSelection(tab);
+        for (size_t i = 0; i < tab.entries.size(); ++i)
+            if (tab.entries[i].name == name) tab.selected[i] = 1;
+    };
+    auto undoNewest = [&]() { return app::Undo(state, state.undoHistory.size() - 1, error); };
+
+    // A new folder goes while empty, and stays once something is in it.
+    CHECK(app::CreateFolderIn(state, tab, "fresh", error));
+    CHECK_EQ(state.undoHistory.size(), (size_t)1);
+    CHECK(state.undoHistory.back().kind == app::UndoKind::Create);
+    CHECK(undoNewest());
+    CHECK(!platform::PathExists(app::JoinPath(tmp.path, "fresh")));
+    CHECK(state.undoHistory.empty());
+    CHECK(app::CreateFolderIn(state, tab, "kept", error));
+    tmp.file("kept/inside.txt");
+    CHECK(!undoNewest());
+    CHECK(!error.empty());
+    CHECK(platform::PathExists(app::JoinPath(tmp.path, "kept/inside.txt")));
+    CHECK(state.undoHistory.empty());   // tried once, then gone either way
+
+    // Rename, and its question.
+    app::ReloadIfNeeded(tab, state.settings);
+    int idx = -1;
+    for (size_t i = 0; i < tab.entries.size(); ++i)
+        if (tab.entries[i].name == "a.txt") idx = (int)i;
+    CHECK(app::RenameEntry(state, tab, idx, "b.txt", error));
+    CHECK_EQ(state.undoHistory.back().label, "Rename 'a.txt' to 'b.txt'");
+    CHECK_EQ(app::UndoQuestion(state, state.undoHistory.back()), "Rename 'b.txt' back to 'a.txt'?");
+    CHECK(undoNewest());
+    CHECK(platform::PathExists(a));
+    CHECK(!platform::PathExists(app::JoinPath(tmp.path, "b.txt")));
+
+    // A move goes back, unless something has taken its old place.
+    CHECK(app::DropPaths(state, { a }, sub, app::DropAction::Move, error));
+    CHECK_EQ(state.undoHistory.back().label, "Move 'a.txt' to sub");
+    CHECK(undoNewest());
+    CHECK(platform::PathExists(a));
+    CHECK(!platform::PathExists(app::JoinPath(sub, "a.txt")));
+    CHECK(app::DropPaths(state, { a }, sub, app::DropAction::Move, error));
+    tmp.file("a.txt", "a newcomer");
+    CHECK(!undoNewest());
+    CHECK(platform::PathExists(app::JoinPath(sub, "a.txt")));
+    // A move onto the folder it is in did nothing and records nothing.
+    CHECK(app::DropPaths(state, { a }, tmp.path, app::DropAction::Move, error));
+    CHECK(state.undoHistory.empty());
+
+    // Copies go to the Recycle Bin, including the renamed " - Copy" one;
+    // the originals stay.
+    CHECK(app::DropPaths(state, { a }, tmp.path, app::DropAction::Copy, error));
+    const std::string copy = app::JoinPath(tmp.path, "a - Copy.txt");
+    CHECK(platform::PathExists(copy));
+    CHECK_EQ(state.undoHistory.back().items.size(), (size_t)1);
+    CHECK_EQ(state.undoHistory.back().items[0].to, copy);
+    CHECK(undoNewest());
+    CHECK(!platform::PathExists(copy));
+    CHECK(platform::PathExists(a));
+
+    // The Recycle Bin gives back what it took, contents and all; a
+    // permanent delete leaves nothing to undo.
+    select("a.txt");
+    CHECK(app::DeleteSelected(state, tab, false, error));
+    CHECK(!platform::PathExists(a));
+    CHECK_EQ(state.undoHistory.back().label, "Delete 'a.txt'");
+    CHECK(undoNewest());
+    CHECK(platform::PathExists(a));
+    {
+        std::ifstream in(a);
+        std::string content;
+        std::getline(in, content);
+        CHECK_EQ(content, "a newcomer");
+    }
+    CHECK(!app::Undo(state, 0, error));   // nothing left
+    select("a.txt");
+    CHECK(app::DeleteSelected(state, tab, true, error));
+    CHECK(state.undoHistory.empty());
+
+    // Out of order: the older of two entries can go first.
+    const std::string c = tmp.file("c.txt");
+    const std::string d = tmp.file("d.txt");
+    CHECK(app::DropPaths(state, { c }, sub, app::DropAction::Move, error));
+    CHECK(app::DropPaths(state, { d }, sub, app::DropAction::Move, error));
+    CHECK(app::Undo(state, 0, error));
+    CHECK(platform::PathExists(c));
+    CHECK(!platform::PathExists(d));
+    CHECK_EQ(state.undoHistory.size(), (size_t)1);
+    CHECK_EQ(state.undoHistory[0].label, "Move 'd.txt' to sub");
+    state.undoHistory.clear();
+
+    // Only the last ten are kept.
+    for (int i = 0; i < 12; ++i)
+        CHECK(app::CreateFolderIn(state, tab, "n" + std::to_string(i), error));
+    CHECK_EQ(state.undoHistory.size(), app::kUndoDepth);
+    CHECK_EQ(state.undoHistory.front().label, "New folder 'n2'");
+    CHECK_EQ(state.undoHistory.back().label, "New folder 'n11'");
 }
 
 void TestShortcuts()
@@ -1419,6 +1531,7 @@ int main()
     TestSelection();
     TestFileOps();
     TestClipboardAndDrop();
+    TestUndo();
     TestShortcuts();
     TestImage();
     TestAppState();

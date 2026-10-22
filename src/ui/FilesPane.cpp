@@ -449,11 +449,9 @@ void DrawBackgroundContextMenu(app::AppState& state, UiState& ui, app::Tab& tab)
         RequestDialog(ui, Dialog::NewFile);
         }
     ImGui::Separator();
-    if (ImGui::MenuItem("Paste", "Ctrl+V", false, app::CanPaste(state, tab)))
-        {
-        std::string error;
-        if (!app::Paste(state, tab, error)) ShowError(ui, error);
-        }
+    if (ImGui::MenuItem("Paste", "Ctrl+V", false, app::CanPaste(state, tab))) StartPaste(state, ui, tab);
+    DrawUndoMenuItems(state, ui);
+    ImGui::Separator();
     if (ImGui::MenuItem("Select all", "Ctrl+A")) app::SelectAll(tab);
     ImGui::Separator();
     if (ImGui::MenuItem("Refresh", "F5")) app::Refresh(tab);
@@ -727,11 +725,7 @@ void HandleListKeys(app::AppState& state, UiState& ui, int tabIndex)
     std::string clipError;
     if (ctrl && ImGui::IsKeyPressed(ImGuiKey_C, false) && !tab.path.empty() && !app::CopySelection(state, tab, false, clipError)) ShowError(ui, clipError);
     if (ctrl && ImGui::IsKeyPressed(ImGuiKey_X, false) && !tab.path.empty() && !app::CopySelection(state, tab, true, clipError)) ShowError(ui, clipError);
-    if (ctrl && ImGui::IsKeyPressed(ImGuiKey_V, false) && app::CanPaste(state, tab))
-        {
-        std::string error;
-        if (!app::Paste(state, tab, error)) ShowError(ui, error);
-        }
+    if (ctrl && ImGui::IsKeyPressed(ImGuiKey_V, false) && app::CanPaste(state, tab)) StartPaste(state, ui, tab);
 }
 
 void DrawFileTable(app::AppState& state, UiState& ui, int tabIndex)

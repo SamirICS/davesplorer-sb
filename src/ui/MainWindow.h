@@ -11,6 +11,7 @@
 #include "imgui_internal.h"
 
 #include <string>
+#include <vector>
 
 namespace ui
 {
@@ -55,6 +56,15 @@ void HandleLayoutRequests(app::AppState& state, UiState& ui, ImVec2 size);
 // Requests used by more than one pane.
 void RequestDialog(UiState& ui, Dialog which, const std::string& title = {});
 void ShowError(UiState& ui, const std::string& message);
+// A move asks first; fromCut empties the clipboard once it is done.
+void StartMove(app::AppState& state, UiState& ui, const std::vector<std::string>& sources,
+               const std::string& dest, bool fromCut);
+// Ctrl+V: a copy pastes at once, a cut asks before moving.
+void StartPaste(app::AppState& state, UiState& ui, app::Tab& tab);
+// Asks before undoing state.undoHistory[index].
+void StartUndo(app::AppState& state, UiState& ui, size_t index);
+// Edit > Undo and the history beneath it, for the menu bar and context menu.
+void DrawUndoMenuItems(app::AppState& state, UiState& ui);
 void ZoomBy(app::AppState& state, float delta);
 void ZoomReset(app::AppState& state);
 

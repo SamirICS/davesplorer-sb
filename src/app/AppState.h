@@ -4,6 +4,7 @@
 
 #include "app/Settings.h"
 #include "app/Tab.h"
+#include "app/Undo.h"
 #include "platform/FileSystem.h"
 
 #include <chrono>
@@ -63,6 +64,8 @@ struct AppState
     Clipboard     clipboard;
     unsigned long clipboardOwnedSeq = 0;   // clipboard sequence when `clipboard` was written
     bool          clipboardHasFiles = false;
+
+    std::vector<UndoEntry> undoHistory;   // newest last, at most kUndoDepth
 
     std::string statusMessage;   // transient note for the status bar
     bool quitRequested = false;

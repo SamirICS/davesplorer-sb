@@ -3,6 +3,7 @@
 #include <gio/gio.h>
 #include <filesystem>
 #include <ctime>
+#include <fstream>
 #include <fcntl.h>
 #include <poll.h>
 #include <unistd.h>
@@ -222,6 +223,79 @@ bool MoveToRecycleBin(const std::vector<std::string>& paths, std::string& error)
         g_object_unref(file);
         if (!GResult(ok, e, error)) return false;
         }
+    return true;
+}
+// The freedesktop.org trash GIO writes: files/<name> is the item, and
+// info/<name>.trashinfo says where it came from and when. The home trash
+// holds absolute paths; a trash at the top of another mount holds paths
+// relative to that mount.
+bool RestoreFromRecycleBin(const std::string& originalPath, std::string& error)
+{
+    if (PathExists(originalPath))
+        { error = "An item named '" + fs::path(originalPath).filename().string() + "' already exists."; return false; }
+    const fs::path parent = fs::path(originalPath).parent_path();
+    if (!IsDirectory(parent.string())) { error = "The folder '" + parent.string() + "' no longer exists."; return false; }
+
+    // The mount's top: the highest ancestor still on the parent's device.
+    struct stat st{};
+    fs::path top = parent;
+    if (stat(parent.c_str(), &st) == 0)
+        for (fs::path up = top.parent_path(); up != top; up = top.parent_path())
+            {
+            struct stat upSt{};
+            if (stat(up.c_str(), &upSt) != 0 || upSt.st_dev != st.st_dev) break;
+            top = up;
+            }
+    const std::string uid = std::to_string(getuid());
+    const std::pair<fs::path, fs::path> trashes[] = {
+        { fs::path(g_get_user_data_dir()) / "Trash", {} },
+        { top / ".Trash" / uid, top },
+        { top / (".Trash-" + uid), top },
+    };
+
+    // The newest deletion of that path wins: the same name may have been
+    // deleted more than once.
+    fs::path bestInfo, bestFile;
+    std::string bestDate;
+    for (const auto& [trash, base] : trashes)
+        {
+        std::error_code ec;
+        for (fs::directory_iterator it(trash / "info", ec), end; !ec && it != end; it.increment(ec))
+            {
+            if (it->path().extension() != ".trashinfo") continue;
+            std::ifstream in(it->path());
+            std::string line, path, date;
+            while (std::getline(in, line))
+                {
+                if (line.rfind("Path=", 0) == 0)
+                    {
+                    char* raw = g_uri_unescape_string(line.c_str() + 5, nullptr);
+                    if (raw) path = raw;
+                    g_free(raw);
+                    }
+                else if (line.rfind("DeletionDate=", 0) == 0) date = line.substr(13);
+                }
+            if (path.empty()) continue;
+            if (path[0] != '/') path = (base / path).string();
+            if (path != originalPath || (!bestInfo.empty() && date < bestDate)) continue;
+            bestInfo = it->path();
+            bestFile = trash / "files" / it->path().stem();
+            bestDate = date;
+            }
+        }
+    if (bestInfo.empty() || !PathExists(bestFile.string()))
+        { error = "'" + fs::path(originalPath).filename().string() + "' is no longer in the Trash."; return false; }
+    if (!RenamePath(bestFile.string(), originalPath, error))
+        {
+        if (errno != EXDEV) return false;
+        std::error_code ec;
+        fs::copy(bestFile, originalPath, fs::copy_options::recursive | fs::copy_options::copy_symlinks, ec);
+        if (!Result(ec, error)) return false;
+        fs::remove_all(bestFile, ec);
+        }
+    std::error_code ec;
+    fs::remove(bestInfo, ec);
+    error.clear();
     return true;
 }
 bool CopyPaths(const std::vector<std::string>& sources, const std::string& dest, bool unique, std::string& error)

@@ -307,6 +307,15 @@ bool MoveToRecycleBin(const std::vector<std::string>& paths, std::string& error)
     return RunShellOp(FO_DELETE, paths, "", FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_NOERRORUI, error);
 }
 
+bool RestoreFromRecycleBin(const std::string& originalPath, std::string& error)
+{
+    // Finding an item by its original path means walking the Recycle Bin's
+    // shell folder; until that is written, Explorer's own Restore does it.
+    (void)originalPath;
+    error = "Restoring from the Recycle Bin isn't available here yet. Restore it from the Recycle Bin.";
+    return false;
+}
+
 bool CopyPaths(const std::vector<std::string>& sources, const std::string& destDir,
                bool renameOnCollision, std::string& error)
 {

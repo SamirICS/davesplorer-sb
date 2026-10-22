@@ -23,6 +23,8 @@ constexpr const char* kNewFolderTitle = "New folder";
 constexpr const char* kNewFileTitle   = "New text file";
 constexpr const char* kRenameTitle    = "Rename";
 constexpr const char* kDeleteTitle    = "Delete";
+constexpr const char* kMoveTitle      = "Move";
+constexpr const char* kUndoTitle      = "Undo";
 // Not "Davesplorer": that is the host window's name, and two windows cannot
 // share one.
 constexpr const char* kErrorTitle     = "Error";
@@ -36,6 +38,8 @@ const char* TitleFor(Dialog d)
         case Dialog::NewFile:   return kNewFileTitle;
         case Dialog::Rename:    return kRenameTitle;
         case Dialog::Delete:    return kDeleteTitle;
+        case Dialog::Move:      return kMoveTitle;
+        case Dialog::Undo:      return kUndoTitle;
         case Dialog::Error:     return kErrorTitle;
         case Dialog::None:      break;
         }
@@ -144,13 +148,13 @@ void DrawDialogs(app::AppState& state, UiState& ui)
         }
 
     DrawNameDialog(kNewFolderTitle, "Folder name:", ui, [&](const std::string& name, std::string& error) {
-        return app::CreateFolderIn(tab, name, error);
+        return app::CreateFolderIn(state, tab, name, error);
     });
     DrawNameDialog(kNewFileTitle, "File name:", ui, [&](const std::string& name, std::string& error) {
-        return app::CreateFileIn(tab, name, error);
+        return app::CreateFileIn(state, tab, name, error);
     });
     DrawNameDialog(kRenameTitle, "New name:", ui, [&](const std::string& name, std::string& error) {
-        return app::RenameEntry(tab, ui.dialogEntry, name, error);
+        return app::RenameEntry(state, tab, ui.dialogEntry, name, error);
     });
 
     if (BeginModal(kDeleteTitle))
@@ -158,12 +162,62 @@ void DrawDialogs(app::AppState& state, UiState& ui)
         ImGui::TextUnformatted(ui.deletePermanent ? ICON_MD_DELETE_FOREVER : ICON_MD_DELETE);
         ImGui::SameLine();
         ImGui::TextWrapped("%s", ui.dialogMessage.c_str());
+        // Edit > Undo brings back what went to the Recycle Bin, not this.
+        if (ui.deletePermanent) MutedText("This can't be undone.");
         ImGui::Spacing();
         bool close = false;
         if (ImGui::Button("Delete", ImVec2(100, 0)) || EnterPressed())
             {
             std::string error;
-            if (!app::DeleteSelected(tab, ui.deletePermanent, error)) ShowError(ui, error);
+            if (!app::DeleteSelected(state, tab, ui.deletePermanent, error)) ShowError(ui, error);
+            close = true;
+            }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(100, 0)) || EscapePressed()) close = true;
+        if (close) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+        }
+
+    if (BeginModal(kMoveTitle))
+        {
+        ImGui::TextUnformatted(ICON_MD_DRIVE_FILE_MOVE);
+        ImGui::SameLine();
+        ImGui::TextWrapped("%s", ui.dialogMessage.c_str());
+        MutedText(ui.moveDest.c_str());
+        ImGui::Spacing();
+        bool close = false;
+        if (ImGui::Button("Move", ImVec2(100, 0)) || EnterPressed())
+            {
+            std::string error;
+            const bool ok = ui.moveFromCut ? app::PastePaths(state, ui.moveSources, true, ui.moveDest, error)
+                                           : app::DropPaths(state, ui.moveSources, ui.moveDest, app::DropAction::Move, error);
+            if (!ok) ShowError(ui, error);
+            close = true;
+            }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(100, 0)) || EscapePressed()) close = true;
+        if (close)
+            {
+            ui.moveSources.clear();
+            ImGui::CloseCurrentPopup();
+            }
+        ImGui::EndPopup();
+        }
+
+    if (BeginModal(kUndoTitle))
+        {
+        ImGui::TextUnformatted(ICON_MD_UNDO);
+        ImGui::SameLine();
+        ImGui::TextWrapped("%s", ui.dialogMessage.c_str());
+        ImGui::Spacing();
+        bool close = false;
+        if (ImGui::Button("Undo", ImVec2(100, 0)) || EnterPressed())
+            {
+            std::string error;
+            const bool same = ui.undoIndex < state.undoHistory.size() &&
+                              state.undoHistory[ui.undoIndex].label == ui.undoLabel;
+            if (!same) ShowError(ui, "That action is no longer in the undo history.");
+            else if (!app::Undo(state, ui.undoIndex, error)) ShowError(ui, error);
             close = true;
             }
         ImGui::SameLine();

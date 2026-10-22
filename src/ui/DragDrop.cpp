@@ -88,6 +88,14 @@ void PerformDrop(app::AppState& state, UiState& ui, const std::vector<std::strin
     if (sources.empty()) return;
     std::string error;
     const app::DropAction action = app::DefaultDropAction(sources, dest, ctrl, shift);
+    // A drag lets go easily over the wrong folder, so a move asks first. A
+    // copy leaves the originals alone, and a drop that cannot happen says
+    // why at once.
+    if (action == app::DropAction::Move && app::WouldMove(sources, dest))
+        {
+        StartMove(state, ui, sources, dest, false);
+        return;
+        }
     if (!app::DropPaths(state, sources, dest, action, error)) ShowError(ui, error);
 }
 

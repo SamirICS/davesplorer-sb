@@ -84,6 +84,9 @@ bool RenamePath(const std::string& from, const std::string& to, std::string& err
 
 bool DeletePermanently(const std::vector<std::string>& paths, std::string& error);
 bool MoveToRecycleBin(const std::vector<std::string>& paths, std::string& error);
+// Puts the item last sent to the Recycle Bin from originalPath back there.
+// Never overwrites: fails when something already sits at originalPath.
+bool RestoreFromRecycleBin(const std::string& originalPath, std::string& error);
 
 // Shell copy/move: the OS shows its own progress and conflict dialogs, which
 // is exactly the behaviour Explorer users expect. renameOnCollision makes a

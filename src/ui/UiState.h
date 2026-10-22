@@ -30,6 +30,8 @@ enum class Dialog
     NewFile,
     Rename,
     Delete,
+    Move,
+    Undo,
     Error,
 };
 
@@ -121,6 +123,18 @@ struct UiState
     std::string dialogTitle;
     int         dialogEntry = -1;
     bool        deletePermanent = false;
+
+    // A move waiting on its confirmation: from a drag, a drop from another
+    // program, or pasting a cut. Held here because the drag that asked is
+    // over by the time the answer comes.
+    std::vector<std::string> moveSources;
+    std::string              moveDest;
+    bool                     moveFromCut = false;   // empty the clipboard after, as a paste does
+
+    // The history entry the Undo dialog asks about, and its label to make
+    // sure it is still that entry when the answer comes.
+    size_t      undoIndex = 0;
+    std::string undoLabel;
 
     // Whether the item the context menu is about is in the dash. Asking the
     // desktop costs a GSettings read, so it is asked once as the menu opens

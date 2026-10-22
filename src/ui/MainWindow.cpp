@@ -11,6 +11,7 @@
 #include "app/Navigation.h"
 #include "app/PathUtil.h"
 #include "app/Selection.h"
+#include "platform/Clipboard.h"
 #include "platform/Shell.h"
 
 #include "imgui.h"
@@ -33,6 +34,60 @@ void ShowError(UiState& ui, const std::string& message)
 {
     ui.dialogMessage = message;
     RequestDialog(ui, Dialog::Error);
+}
+
+void StartMove(app::AppState& state, UiState& ui, const std::vector<std::string>& sources,
+               const std::string& dest, bool fromCut)
+{
+    if (sources.empty()) return;
+    ui.moveSources = sources;
+    ui.moveDest = dest;
+    ui.moveFromCut = fromCut;
+    const std::string where = app::LocationTitle(state, dest);
+    ui.dialogMessage = sources.size() == 1
+        ? "Move '" + app::PathName(sources[0]) + "' to " + where + "?"
+        : "Move these " + std::to_string(sources.size()) + " items to " + where + "?";
+    RequestDialog(ui, Dialog::Move);
+}
+
+void StartPaste(app::AppState& state, UiState& ui, app::Tab& tab)
+{
+    std::vector<std::string> paths;
+    bool cut = false;
+    if (tab.path.empty() || !platform::GetClipboardFiles(paths, cut)) return;
+    if (cut && app::WouldMove(paths, tab.path))
+        {
+        StartMove(state, ui, paths, tab.path, true);
+        return;
+        }
+    std::string error;
+    if (!app::PastePaths(state, paths, cut, tab.path, error)) ShowError(ui, error);
+}
+
+void StartUndo(app::AppState& state, UiState& ui, size_t index)
+{
+    if (index >= state.undoHistory.size()) return;
+    ui.undoIndex = index;
+    ui.undoLabel = state.undoHistory[index].label;
+    ui.dialogMessage = app::UndoQuestion(state, state.undoHistory[index]);
+    RequestDialog(ui, Dialog::Undo);
+}
+
+void DrawUndoMenuItems(app::AppState& state, UiState& ui)
+{
+    const std::vector<app::UndoEntry>& history = state.undoHistory;
+    // The ### keeps one id while the label follows the newest entry.
+    const std::string undo = history.empty() ? "Undo" : "Undo " + history.back().label;
+    if (ImGui::MenuItem((undo + "###Undo").c_str(), "Ctrl+Z", false, !history.empty()))
+        StartUndo(state, ui, history.size() - 1);
+    // Any of the last few, not only the newest: each checks the disk for
+    // itself, so taking one back out of order is safe.
+    if (ImGui::BeginMenu("Undo history", !history.empty()))
+        {
+        for (size_t i = history.size(); i-- > 0;)
+            if (ImGui::MenuItem((history[i].label + "###undo" + std::to_string(i)).c_str())) StartUndo(state, ui, i);
+        ImGui::EndMenu();
+        }
 }
 
 void ZoomBy(app::AppState& state, float delta)
@@ -265,14 +320,12 @@ void DrawMenuBar(app::AppState& state, UiState& ui)
 
     if (ImGui::BeginMenu("Edit"))
         {
+        DrawUndoMenuItems(state, ui);
+        ImGui::Separator();
         std::string clipError;
         if (ImGui::MenuItem("Cut", "Ctrl+X", false, haveSelection && inFolder) && !app::CopySelection(state, tab, true, clipError)) ShowError(ui, clipError);
         if (ImGui::MenuItem("Copy", "Ctrl+C", false, haveSelection && inFolder) && !app::CopySelection(state, tab, false, clipError)) ShowError(ui, clipError);
-        if (ImGui::MenuItem("Paste", "Ctrl+V", false, app::CanPaste(state, tab)))
-            {
-            std::string error;
-            if (!app::Paste(state, tab, error)) ShowError(ui, error);
-            }
+        if (ImGui::MenuItem("Paste", "Ctrl+V", false, app::CanPaste(state, tab))) StartPaste(state, ui, tab);
         ImGui::Separator();
         if (ImGui::MenuItem("Select all", "Ctrl+A")) app::SelectAll(tab);
         if (ImGui::MenuItem("Select none")) app::ClearSelection(tab);
@@ -440,6 +493,7 @@ void HandleGlobalShortcuts(app::AppState& state, UiState& ui)
     if (chord(ImGuiMod_Ctrl | ImGuiKey_Minus) || chord(ImGuiMod_Ctrl | ImGuiKey_KeypadSubtract)) ZoomBy(state, -0.1f);
     if (chord(ImGuiMod_Ctrl | ImGuiKey_0) || chord(ImGuiMod_Ctrl | ImGuiKey_Keypad0)) ZoomReset(state);
     if (chord(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_N) && !tab.path.empty()) StartNewFolder(state, ui);
+    if (chord(ImGuiMod_Ctrl | ImGuiKey_Z) && !state.undoHistory.empty()) StartUndo(state, ui, state.undoHistory.size() - 1);
     if (io.KeyCtrl && io.MouseWheel != 0.0f) ZoomBy(state, io.MouseWheel > 0 ? 0.1f : -0.1f);
 }
 

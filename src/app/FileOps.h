@@ -17,16 +17,22 @@ bool OpenEntry(AppState& state, Tab& tab, int entryIndex, std::string& error);
 // "New folder", "New folder (2)", ... whichever does not exist yet.
 std::string UniqueNewName(const Tab& tab, const std::string& base);
 
-bool CreateFolderIn(Tab& tab, const std::string& name, std::string& error);
-bool CreateFileIn(Tab& tab, const std::string& name, std::string& error);
-bool RenameEntry(Tab& tab, int entryIndex, const std::string& newName, std::string& error);
-bool DeleteSelected(Tab& tab, bool permanent, std::string& error);
+// These four, the copies and the moves each record what they did in
+// state.undoHistory; a permanent delete records nothing.
+bool CreateFolderIn(AppState& state, Tab& tab, const std::string& name, std::string& error);
+bool CreateFileIn(AppState& state, Tab& tab, const std::string& name, std::string& error);
+bool RenameEntry(AppState& state, Tab& tab, int entryIndex, const std::string& newName, std::string& error);
+bool DeleteSelected(AppState& state, Tab& tab, bool permanent, std::string& error);
 
 // Cut/copy place the selection on the Windows clipboard as CF_HDROP.
 bool CopySelection(AppState& state, Tab& tab, bool cut, std::string& error);
 bool CanPaste(const AppState& state, const Tab& tab);
 // Pastes whatever file list the clipboard holds, from any program.
 bool Paste(AppState& state, Tab& tab, std::string& error);
+// The second half of Paste, for a list already read from the clipboard
+// (the interface reads it first to ask before a cut moves anything).
+bool PastePaths(AppState& state, const std::vector<std::string>& paths, bool cut, const std::string& destDir,
+                std::string& error);
 
 enum class DropAction
 {
@@ -41,6 +47,10 @@ DropAction DefaultDropAction(const std::vector<std::string>& sources, const std:
 // True when dropping these sources on destDir would do something: not the
 // folder they already sit in (for a move), not a folder into itself.
 bool CanDropOn(const std::vector<std::string>& sources, const std::string& destDir);
+
+// True when moving these sources into destDir would really move something:
+// a drop CanDropOn allows, onto a folder other than the one they sit in.
+bool WouldMove(const std::vector<std::string>& sources, const std::string& destDir);
 
 // Copies or moves sources into destDir and refreshes every tab.
 bool DropPaths(AppState& state, const std::vector<std::string>& sources, const std::string& destDir,

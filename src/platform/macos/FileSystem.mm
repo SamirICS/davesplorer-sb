@@ -254,6 +254,14 @@ bool MoveToRecycleBin(const std::vector<std::string>& paths, std::string& error)
         return true;
         }
 }
+bool RestoreFromRecycleBin(const std::string& originalPath, std::string& error)
+{
+    // The Finder keeps where an item came from in the Trash's .DS_Store,
+    // which nothing public reads; Put Back in the Finder does it.
+    (void)originalPath;
+    error = "Restoring from the Trash isn't available here yet. Use Put Back in the Finder.";
+    return false;
+}
 bool CopyPaths(const std::vector<std::string>& sources, const std::string& dest, bool unique, std::string& error)
 { return Transfer(sources, dest, false, unique, error); }
 bool MovePaths(const std::vector<std::string>& sources, const std::string& dest, std::string& error)

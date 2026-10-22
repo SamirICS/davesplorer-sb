@@ -140,8 +140,23 @@ void GoToScratch(ImGuiTestContext* ctx, Fixture& fx)
     app::OpenTab(fx.state, fx.root);
     fx.state.settings.uiScale = 1.0f;
     fx.state.settings.showHidden = false;
+    fx.state.undoHistory.clear();
     fx.ui = ui::UiState{};
+    // A test that failed with a dialog up must not leave it over the next.
+    ctx->PopupCloseAll();
     ctx->Yield(3);
+}
+
+// A move asks first: the Move dialog is up, and its Move button does it.
+void ConfirmMove(ImGuiTestContext* ctx)
+{
+    ctx->Yield(2);
+    IM_CHECK(ImGui::GetTopMostPopupModal() != nullptr);
+    IM_CHECK(g_fx->ui.dialog == ui::Dialog::Move);
+    ctx->SetRef("//Move");
+    ctx->ItemClick("Move");
+    ctx->Yield(3);
+    IM_CHECK(ImGui::GetTopMostPopupModal() == nullptr);
 }
 
 // A stand-in for the renderer's texture upload: ImGui asks for textures to
@@ -433,7 +448,7 @@ void RegisterTests(ImGuiTestEngine* e)
         IM_CHECK(src != 0);
         ctx->SetRef(ImGuiTestRef(ui::ViewWindowId(rightId)));
         ctx->ItemDragAndDrop(ImGuiTestRef(src), "**/###sub");
-        ctx->Yield(3);
+        ConfirmMove(ctx);
         const std::string sub = app::JoinPath(fx.root, "sub");
         IM_CHECK(platform::PathExists(app::JoinPath(sub, "alpha.txt")));
         IM_CHECK(!platform::PathExists(app::JoinPath(fx.root, "alpha.txt")));
@@ -484,7 +499,7 @@ void RegisterTests(ImGuiTestEngine* e)
         IM_CHECK(ImGui::IsDragDropActive());
         IM_CHECK_EQ(fx.ui.dragPaths.size(), (size_t)1);
         ctx->MouseUp(0);
-        ctx->Yield(3);
+        ConfirmMove(ctx);
         IM_CHECK(platform::PathExists(app::JoinPath(sub, "alpha.txt")));
         IM_CHECK(!platform::PathExists(app::JoinPath(fx.root, "alpha.txt")));
     };
@@ -600,7 +615,7 @@ void RegisterTests(ImGuiTestEngine* e)
         ctx->ItemDoubleClick("**/###sub");
         ctx->Yield(2);
         ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_V);
-        ctx->Yield(3);
+        ConfirmMove(ctx);
         IM_CHECK(platform::PathExists(app::JoinPath(app::JoinPath(fx.root, "sub"), "beta.md")));
         IM_CHECK(!platform::PathExists(app::JoinPath(fx.root, "beta.md")));
         IM_CHECK(!platform::ClipboardHasFiles());
@@ -623,9 +638,11 @@ void RegisterTests(ImGuiTestEngine* e)
         IM_CHECK_STR_EQ(fx.ui.dropHoverPath.c_str(), app::JoinPath(fx.root, "sub").c_str());
         ctx->MouseUp(0);
         ctx->Yield(3);
-        IM_CHECK_STR_EQ(fx.ui.dialogMessage.c_str(), "");
-        IM_CHECK(ImGui::GetTopMostPopupModal() == nullptr);
         IM_CHECK(!ImGui::IsDragDropActive());
+        // Nothing has moved until the dialog says so.
+        IM_CHECK(platform::PathExists(app::JoinPath(fx.root, "alpha.txt")));
+        IM_CHECK_STR_EQ(fx.ui.dialogMessage.c_str(), "Move 'alpha.txt' to sub?");
+        ConfirmMove(ctx);
         IM_CHECK(platform::PathExists(app::JoinPath(app::JoinPath(fx.root, "sub"), "alpha.txt")));
         IM_CHECK(!platform::PathExists(app::JoinPath(fx.root, "alpha.txt")));
         IM_CHECK_EQ(fx.state.active().entries.size(), (size_t)3);
@@ -663,7 +680,7 @@ void RegisterTests(ImGuiTestEngine* e)
         // From inside sub, onto the parent's breadcrumb: up it goes.
         const size_t n = app::Breadcrumbs(sub).size();
         ctx->ItemDragAndDrop("**/###inner.txt", ("**/###crumb" + std::to_string(n - 2)).c_str());
-        ctx->Yield(3);
+        ConfirmMove(ctx);
         IM_CHECK(platform::PathExists(app::JoinPath(fx.root, "inner.txt")));
         IM_CHECK(!platform::PathExists(app::JoinPath(sub, "inner.txt")));
     };
@@ -687,7 +704,7 @@ void RegisterTests(ImGuiTestEngine* e)
         ctx->Yield(3);
         RefActiveView(ctx, fx);
         ctx->ItemDragAndDrop("**/###gamma.png", "//Navigation/**/###sub");
-        ctx->Yield(3);
+        ConfirmMove(ctx);
         IM_CHECK(platform::PathExists(app::JoinPath(sub, "gamma.png")));
         IM_CHECK(!platform::PathExists(app::JoinPath(fx.root, "gamma.png")));
     };
@@ -723,6 +740,76 @@ void RegisterTests(ImGuiTestEngine* e)
         fx.ui.externalDrop.ctrl = true;
         ctx->Yield(3);
         IM_CHECK(platform::PathExists(app::JoinPath(fx.root, "dropped.txt")));
+    };
+
+    t = IM_REGISTER_TEST(e, "explorer", "move_cancelled_leaves_files");
+    t->TestFunc = [](ImGuiTestContext* ctx) {
+        Fixture& fx = *g_fx;
+        GoToScratch(ctx, fx);
+        RefActiveView(ctx, fx);
+        ctx->ItemDragAndDrop("**/###alpha.txt", "**/###sub");
+        ctx->Yield(2);
+        IM_CHECK(fx.ui.dialog == ui::Dialog::Move);
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->Yield(3);
+        IM_CHECK(ImGui::GetTopMostPopupModal() == nullptr);
+        IM_CHECK(platform::PathExists(app::JoinPath(fx.root, "alpha.txt")));
+        IM_CHECK(!platform::PathExists(app::JoinPath(app::JoinPath(fx.root, "sub"), "alpha.txt")));
+        IM_CHECK(fx.state.undoHistory.empty());
+
+        // A move from another program asks too.
+        const std::string outside = app::JoinPath(fx.exeDir, "moved_in.txt");
+        WriteFile(outside, "from elsewhere");
+        fx.ui.externalDrop = ui::UiState::ExternalDrop{};
+        fx.ui.externalDrop.paths.push_back(outside);
+        fx.ui.externalDrop.completed = true;
+        fx.ui.externalDrop.shift = true;
+        ConfirmMove(ctx);
+        IM_CHECK(platform::PathExists(app::JoinPath(fx.root, "moved_in.txt")));
+        IM_CHECK(!platform::PathExists(outside));
+    };
+
+    t = IM_REGISTER_TEST(e, "explorer", "undo_move_and_rename");
+    t->TestFunc = [](ImGuiTestContext* ctx) {
+        Fixture& fx = *g_fx;
+        GoToScratch(ctx, fx);
+        RefActiveView(ctx, fx);
+        ctx->ItemDragAndDrop("**/###alpha.txt", "**/###sub");
+        ConfirmMove(ctx);
+        const std::string sub = app::JoinPath(fx.root, "sub");
+        IM_CHECK(platform::PathExists(app::JoinPath(sub, "alpha.txt")));
+        IM_CHECK_EQ(fx.state.undoHistory.size(), (size_t)1);
+
+        RefActiveView(ctx, fx);
+        ctx->ItemClick("**/###beta.md");
+        ctx->KeyPress(ImGuiKey_F2);
+        ctx->Yield(2);
+        ctx->SetRef("//Rename");
+        ctx->ItemInputValue("##name", "delta.md");
+        ctx->Yield(3);
+        IM_CHECK_EQ(fx.state.undoHistory.size(), (size_t)2);
+
+        // Ctrl+Z asks about the newest, and Enter answers it.
+        ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_Z);
+        ctx->Yield(2);
+        IM_CHECK(fx.ui.dialog == ui::Dialog::Undo);
+        IM_CHECK_STR_EQ(fx.ui.dialogMessage.c_str(), "Rename 'delta.md' back to 'beta.md'?");
+        ctx->KeyPress(ImGuiKey_Enter);
+        ctx->Yield(3);
+        IM_CHECK(ImGui::GetTopMostPopupModal() == nullptr);
+        IM_CHECK(platform::PathExists(app::JoinPath(fx.root, "beta.md")));
+
+        // The move, from the Edit menu this time.
+        ctx->SetRef(ui::kHostWindow);
+        ctx->MenuClick("Edit/###Undo");
+        ctx->Yield(2);
+        IM_CHECK(fx.ui.dialog == ui::Dialog::Undo);
+        ctx->SetRef("//Undo");
+        ctx->ItemClick("Undo");
+        ctx->Yield(3);
+        IM_CHECK(platform::PathExists(app::JoinPath(fx.root, "alpha.txt")));
+        IM_CHECK(!platform::PathExists(app::JoinPath(sub, "alpha.txt")));
+        IM_CHECK(fx.state.undoHistory.empty());
     };
 
     t = IM_REGISTER_TEST(e, "explorer", "command_line_select_scrolls_into_view");
@@ -1475,7 +1562,7 @@ void RegisterTests(ImGuiTestEngine* e)
         ctx->ItemClick("**/###sub|deeper|leaf.txt");
         ctx->Yield();
         std::string error;
-        IM_CHECK(app::RenameEntry(fx.state.active(), fx.state.active().focused, "renamed.txt", error));
+        IM_CHECK(app::RenameEntry(fx.state, fx.state.active(), fx.state.active().focused, "renamed.txt", error));
         ctx->Yield(3);
         IM_CHECK(platform::PathExists(app::JoinPath(app::JoinPath(app::JoinPath(fx.root, "sub"), "deeper"), "renamed.txt")));
         IM_CHECK(!platform::PathExists(app::JoinPath(fx.root, "renamed.txt")));

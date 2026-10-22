@@ -147,6 +147,7 @@ add_library(dsp_app STATIC
     src/app/Selection.cpp
     src/app/Settings.cpp
     src/app/FileOps.cpp
+    src/app/Undo.cpp
     src/app/Shortcuts.cpp
     src/app/Image.cpp
     src/app/Layout.cpp
