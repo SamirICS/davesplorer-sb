@@ -1,4 +1,5 @@
 #include "app/AppState.h"
+#include "app/Image.h"
 #include "app/Listing.h"
 #include "app/Navigation.h"
 #include "app/PathUtil.h"
@@ -119,6 +120,12 @@ bool ApplyStartArgument(AppState& state, const std::string& argument)
         {
         folder = ParentPath(path);
         select = PathName(path);
+        // A file the viewer shows opens in it too, beside its folder: what
+        // the desktop asks for when Davesplorer is the PDF or Markdown
+        // handler. /select only ever selects.
+        const size_t dot = select.find_last_of('.');
+        if (!selectMode && dot != std::string::npos && OpensInApp(state.settings, platform::ToLowerAscii(select.substr(dot + 1))))
+            state.viewOnStart = path;
         }
 
     // The pinned views stay; the argument takes the place of the rest.

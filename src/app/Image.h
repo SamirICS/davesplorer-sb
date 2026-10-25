@@ -51,12 +51,20 @@ bool DecodeThumbnail(const std::string& path, int maxDim, DecodedImage& out, std
 // an image that still exists.
 std::vector<std::string> ImageSiblings(const std::string& path);
 
+// Whether the built-in viewer shows files with this extension (images,
+// PDFs, Markdown), and as what.
+bool ViewableInApp(std::string_view extension, FileViewKind& kind);
+// The same, asking the preferences too: whether a double-click should open
+// it here rather than hand it to the desktop.
+bool OpensInApp(const Settings& settings, std::string_view extension);
+
 // Which of the file views shows this path, or -1.
 int FindFileView(const AppState& state, const std::string& path);
 
 // Opens a file view on the path (or focuses the one already showing it via
 // the returned index, which the interface treats the same). Returns the
-// index into state.fileViews.
+// index into state.fileViews. What it shows follows the extension; a file
+// the viewer does not know is shown as an image, which reports the error.
 int  OpenFileView(AppState& state, const std::string& path);
 void CloseFileView(AppState& state, int index);
 

@@ -23,6 +23,13 @@ bool IconButton(const char* id, const char* icon, const char* tooltip, bool enab
     return pressed;
 }
 
+void ToolbarGroup(float width)
+{
+    ImGui::SameLine();
+    const float right = ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x;
+    if (ImGui::GetCursorScreenPos().x + width > right) ImGui::NewLine();
+}
+
 void TipOnHover(const char* text)
 {
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("%s", text);

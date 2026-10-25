@@ -51,7 +51,7 @@ bool OpenEntryHere(app::AppState& state, UiState& ui, int tabIndex, int entryInd
     const app::Tab& tab = state.tabs[(size_t)tabIndex];
     if (entryIndex < 0 || entryIndex >= (int)tab.entries.size()) return false;
     const platform::FileEntry& e = tab.entries[(size_t)entryIndex];
-    if (!e.isDirectory && state.settings.openImagesInApp && app::IsViewableImage(e.extension))
+    if (!e.isDirectory && app::OpensInApp(state.settings, e.extension))
         {
         OpenFileView(state, ui, e.path);
         return true;
@@ -345,7 +345,8 @@ void DrawRowContextMenu(app::AppState& state, UiState& ui, int tabIndex)
     const bool inFolder = !tab.path.empty();
     const bool haveSelection = app::SelectedCount(tab) > 0;
     const bool focusedIsFolder = tab.focused >= 0 && tab.entries[(size_t)tab.focused].isDirectory;
-    const bool focusedIsImage = tab.focused >= 0 && !focusedIsFolder && app::IsViewableImage(tab.entries[(size_t)tab.focused].extension);
+    app::FileViewKind focusedKind{};
+    const bool focusedIsViewable = tab.focused >= 0 && !focusedIsFolder && app::ViewableInApp(tab.entries[(size_t)tab.focused].extension, focusedKind);
     const bool focusedIsProgram = tab.focused >= 0 && tab.entries[(size_t)tab.focused].isExecutable;
     const bool focusedIsLauncher = tab.focused >= 0 && tab.entries[(size_t)tab.focused].extension == "desktop";
     const std::string focusedPath = tab.focused >= 0 ? tab.entries[(size_t)tab.focused].path : std::string();
@@ -373,9 +374,9 @@ void DrawRowContextMenu(app::AppState& state, UiState& ui, int tabIndex)
 #ifdef __linux__
     if (ImGui::MenuItem("Show programs under here", nullptr, false, focusedIsFolder)) OpenProgramsView(state, ui, focusedPath);
 #endif
-    // The two ways to open an image, both always on offer whatever the
-    // double-click preference says.
-    if (ImGui::MenuItem("View in Davesplorer", nullptr, false, focusedIsImage)) OpenFileView(state, ui, focusedPath);
+    // The two ways to open an image, PDF or Markdown file, both always on
+    // offer whatever the double-click preference says.
+    if (ImGui::MenuItem("View in Davesplorer", nullptr, false, focusedIsViewable)) OpenFileView(state, ui, focusedPath);
     // A program is started, not opened: no handler is asked, and it runs in
     // the folder it lives in.
     if (ImGui::MenuItem("Run", nullptr, false, focusedIsProgram))

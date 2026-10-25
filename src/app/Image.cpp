@@ -1,5 +1,7 @@
 #include "app/Image.h"
+#include "app/Markdown.h"
 #include "app/PathUtil.h"
+#include "app/Pdf.h"
 #include "platform/FileSystem.h"
 #include "platform/Shell.h"
 #include "platform/Strings.h"
@@ -137,6 +139,22 @@ std::vector<std::string> ImageSiblings(const std::string& path)
     return result;
 }
 
+bool ViewableInApp(std::string_view extension, FileViewKind& kind)
+{
+    if (IsViewableImage(extension)) kind = FileViewKind::Image;
+    else if (pdf::IsPdf(extension)) kind = FileViewKind::Pdf;
+    else if (md::IsMarkdown(extension)) kind = FileViewKind::Markdown;
+    else return false;
+    return true;
+}
+
+bool OpensInApp(const Settings& settings, std::string_view extension)
+{
+    FileViewKind kind{};
+    if (!ViewableInApp(extension, kind)) return false;
+    return kind == FileViewKind::Image ? settings.openImagesInApp : settings.openDocumentsInApp;
+}
+
 int FindFileView(const AppState& state, const std::string& path)
 {
     for (size_t i = 0; i < state.fileViews.size(); ++i)
@@ -151,6 +169,11 @@ int OpenFileView(AppState& state, const std::string& path)
     FileView view;
     view.id = state.nextTabId++;   // shared with folder views so every window id is distinct
     view.path = path;
+    const std::string name = PathName(path);
+    const size_t dot = name.find_last_of('.');
+    std::string ext = dot == std::string::npos ? std::string() : name.substr(dot + 1);
+    for (char& c : ext) c = (char)std::tolower((unsigned char)c);
+    if (!ViewableInApp(ext, view.kind)) view.kind = FileViewKind::Image;
     state.fileViews.push_back(view);
     return (int)state.fileViews.size() - 1;
 }

@@ -7,6 +7,7 @@
 #include "imgui.h"
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -70,6 +71,11 @@ struct ViewUi
     std::vector<uint8_t> lassoBase;               // selection snapshot when the lasso began
 };
 
+// A PDF or Markdown file being shown: the document, its textures and how
+// it is being looked at. Defined beside the code that draws them.
+struct PdfViewUi;
+struct MarkdownViewUi;
+
 // Per-file-view interface state: the decoded image as a texture, and how
 // it is being looked at. Keyed by the file view's id.
 struct FileViewUi
@@ -95,6 +101,9 @@ struct FileViewUi
 
     std::vector<std::string> siblings;   // the folder's images in order, for Previous/Next
     int                      siblingIndex = -1;
+
+    std::shared_ptr<PdfViewUi>      pdf;        // a PDF view's, made on its first draw
+    std::shared_ptr<MarkdownViewUi> markdown;   // a Markdown view's, likewise
 };
 
 // Per-Programs-window interface state, keyed by the view's id.
@@ -133,6 +142,13 @@ struct UiState
         ImGuiDir dir = ImGuiDir_Right;
         } splitRequest;
     ImGuiID defaultViewDock = 0;   // the dockspace's central node, where new views land
+
+    // File views open on the right of the folder views: the first one
+    // splits the active view's node, and later ones join that half as tabs
+    // for as long as it is there. A file view waiting for the split is not
+    // drawn, so it never flashes up anywhere else first.
+    ImGuiID viewerDock = 0;
+    int     viewerSplitFor = -1;   // the file view's id, -1 for none
 
     // Dialogs. `requested` is consumed by the dialog drawer, which lives in
     // the host window so OpenPopup and BeginPopupModal share an ID stack.
@@ -192,6 +208,7 @@ struct UiState
 
     float dpiScale = 1.0f;         // from the host each frame
     bool  animating = false;       // something moves without input (a lasso scrolling the list): keep frames coming
+    bool  wheelTaken = false;      // a viewer zoomed with Ctrl+wheel this frame: the interface zoom leaves it alone
     bool  resetLayoutRequested = false;
     ImGuiID dockspaceId = 0;       // the main dockspace, for saving its tree
 

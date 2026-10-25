@@ -11,6 +11,11 @@ namespace ui
 // ImGui see; the icon is only what the user sees.
 bool IconButton(const char* id, const char* icon, const char* tooltip, bool enabled = true);
 
+// Starts the next group of toolbar items on the same line if it fits in
+// `width`, and on a new line otherwise, so a narrow window wraps its
+// toolbar rather than clipping it.
+void ToolbarGroup(float width);
+
 // Tooltip on the last item, after the usual hover delay.
 void TipOnHover(const char* text);
 

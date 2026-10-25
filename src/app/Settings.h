@@ -47,6 +47,7 @@ struct Settings
     bool  showStatusBar = true;
     bool  showDetailsPane = false;
     bool  openImagesInApp = true;  // double-click on an image: the built-in viewer instead of the shell
+    bool  openDocumentsInApp = true;  // and on a PDF or Markdown file
     ViewMode viewMode = ViewMode::Details;   // what a new view starts as
     int   thumbnailSize = 96;      // unscaled pixels, one of kThumbnailSizes
     std::string startPath;         // where the first tab opens; "" is This PC

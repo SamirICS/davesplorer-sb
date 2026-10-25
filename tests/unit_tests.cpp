@@ -8,16 +8,21 @@
 #include "app/Image.h"
 #include "app/Layout.h"
 #include "app/Listing.h"
+#include "app/Markdown.h"
 #include "app/Navigation.h"
 #include "app/PathUtil.h"
+#include "app/Pdf.h"
 #include "app/Selection.h"
 #include "app/Settings.h"
 #include "app/Shortcuts.h"
 #include "app/TreeScan.h"
 #include "platform/Clipboard.h"
 #include "platform/FileSystem.h"
+#include "platform/PdfEngine.h"
 #include "platform/Shell.h"
 #include "platform/Strings.h"
+
+#include "TestPdf.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -31,12 +36,14 @@
 #include <filesystem>
 
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <iterator>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -1666,6 +1673,222 @@ void TestExpandedTree()
     CHECK_EQ(tab.entries.size(), (size_t)2);   // inner.txt and deeper, nothing below
 }
 
+
+void TestMarkdown()
+{
+    namespace md = app::md;
+    CHECK(md::IsMarkdown("md"));
+    CHECK(md::IsMarkdown("markdown"));
+    CHECK(!md::IsMarkdown("txt"));
+    CHECK(app::OpensInApp(app::Settings{}, "md"));
+    CHECK(app::OpensInApp(app::Settings{}, "pdf"));
+    app::Settings off;
+    off.openDocumentsInApp = false;
+    CHECK(!app::OpensInApp(off, "md"));
+    CHECK(app::OpensInApp(off, "png"));   // images follow their own preference
+
+    // Blocks, in order, with their nesting.
+    const md::Document doc = md::Parse(
+        "# Title\n"
+        "\n"
+        "Some *em* and **strong** and `code` and [a link](docs/a%20b.md#part).\n"
+        "\n"
+        "- one\n"
+        "- two\n"
+        "  - nested\n"
+        "- [x] done\n"
+        "\n"
+        "1. first\n"
+        "2. second\n"
+        "\n"
+        "> quoted\n"
+        "\n"
+        "```cpp\n"
+        "int x;\n"
+        "```\n"
+        "\n"
+        "| A | B |\n"
+        "|:--|--:|\n"
+        "| 1 | 2 |\n"
+        "\n"
+        "---\n"
+        "\n"
+        "## Title\n");
+    std::vector<md::BlockKind> kinds;
+    for (const md::Block& b : doc.blocks) kinds.push_back(b.kind);
+    const std::vector<md::BlockKind> want = {
+        md::BlockKind::Heading, md::BlockKind::Paragraph,
+        md::BlockKind::Paragraph, md::BlockKind::Paragraph, md::BlockKind::Paragraph, md::BlockKind::Paragraph,
+        md::BlockKind::Paragraph, md::BlockKind::Paragraph,
+        md::BlockKind::Paragraph,
+        md::BlockKind::Code, md::BlockKind::Table, md::BlockKind::Rule, md::BlockKind::Heading,
+    };
+    CHECK(kinds == want);
+    if (kinds == want)
+        {
+        CHECK_EQ(doc.blocks[0].level, 1);
+        CHECK_EQ(doc.blocks[0].anchor, std::string("title"));
+        CHECK_EQ(doc.blocks[12].anchor, std::string("title-1"));   // duplicates are numbered
+        const md::Block& p = doc.blocks[1];
+        CHECK_EQ(md::PlainText(p.spans), std::string("Some em and strong and code and a link."));
+        bool sawEm = false, sawBold = false, sawCode = false, sawLink = false;
+        for (const md::Span& s : p.spans)
+            {
+            if (s.text == "em") sawEm = (s.style & md::kItalic) != 0;
+            if (s.text == "strong") sawBold = (s.style & md::kBold) != 0;
+            if (s.text == "code") sawCode = (s.style & md::kCode) != 0;
+            if (s.text == "a link") sawLink = s.link >= 0 && doc.links[(size_t)s.link] == "docs/a%20b.md#part";
+            }
+        CHECK(sawEm);
+        CHECK(sawBold);
+        CHECK(sawCode);
+        CHECK(sawLink);
+        // Bullets carry no marker text; the nested one is a level deeper.
+        CHECK(doc.blocks[2].itemStart);
+        CHECK(doc.blocks[2].marker.empty());
+        CHECK_EQ(doc.blocks[2].listDepth, 1);
+        CHECK(doc.blocks[2].tight);
+        CHECK_EQ(doc.blocks[4].listDepth, 2);
+        CHECK_EQ(md::PlainText(doc.blocks[4].spans), std::string("nested"));
+        CHECK_EQ(doc.blocks[5].task, 2);
+        CHECK_EQ(md::PlainText(doc.blocks[5].spans), std::string("done"));
+        CHECK_EQ(doc.blocks[6].marker, std::string("1."));
+        CHECK_EQ(doc.blocks[7].marker, std::string("2."));
+        CHECK_EQ(doc.blocks[8].quoteDepth, 1);
+        CHECK_EQ(doc.blocks[9].code, std::string("int x;"));
+        CHECK_EQ(doc.blocks[9].language, std::string("cpp"));
+        const md::Block& t = doc.blocks[10];
+        CHECK_EQ(t.rows.size(), (size_t)2);
+        CHECK_EQ(t.headerRows, 1);
+        CHECK(t.align.size() == 2 && t.align[0] == md::Align::Left && t.align[1] == md::Align::Right);
+        CHECK_EQ(md::PlainText(t.rows[1][1]), std::string("2"));
+        }
+
+    // Pictures, entities, breaks, raw HTML and front matter.
+    const md::Document html = md::Parse(
+        "---\n"
+        "title: x\n"
+        "---\n"
+        "<p align=\"center\"><img src=\"logo.png\" alt=\"Logo\"></p>\n"
+        "\n"
+        "A&amp;B line<br>next ![shot](img/s.png) <!-- gone -->\n");
+    CHECK(!html.blocks.empty() && html.blocks[0].kind == md::BlockKind::Code && html.blocks[0].code == "title: x");
+    CHECK_EQ(html.images.size(), (size_t)2);
+    if (html.images.size() == 2)
+        {
+        CHECK_EQ(html.images[0], std::string("logo.png"));
+        CHECK_EQ(html.images[1], std::string("img/s.png"));
+        }
+    bool centered = false, sawBreak = false, sawAmp = false;
+    for (const md::Block& b : html.blocks)
+        {
+        if (b.centered && !b.spans.empty() && b.spans[0].kind == md::SpanKind::Image && b.spans[0].text == "Logo") centered = true;
+        for (const md::Span& s : b.spans)
+            {
+            if (s.kind == md::SpanKind::HardBreak) sawBreak = true;
+            if (s.text.find("A&B") != std::string::npos) sawAmp = true;
+            }
+        }
+    CHECK(centered);
+    CHECK(sawBreak);
+    CHECK(sawAmp);
+
+    CHECK_EQ(md::Slug("Getting Started: Linux & macOS"), std::string("getting-started-linux--macos"));
+
+    // Where links go.
+#ifdef _WIN32
+    const std::string doc1 = "C:\\proj\\docs\\README.md";
+#else
+    const std::string doc1 = "/proj/docs/README.md";
+#endif
+    md::LinkTarget t = md::ResolveLink(doc1, "#install");
+    CHECK(t.kind == md::LinkTarget::Kind::Anchor && t.anchor == "install");
+    t = md::ResolveLink(doc1, "https://example.com/x");
+    CHECK(t.kind == md::LinkTarget::Kind::Web);
+    t = md::ResolveLink(doc1, "mailto:someone@example.com");
+    CHECK(t.kind == md::LinkTarget::Kind::Unsupported);
+    t = md::ResolveLink(doc1, "../src/My%20File.md#top");
+    CHECK(t.kind == md::LinkTarget::Kind::File);
+    CHECK_EQ(t.anchor, std::string("top"));
+#ifdef _WIN32
+    CHECK_EQ(t.path, std::string("C:\\proj\\src\\My File.md"));
+    CHECK_EQ(md::ResolveImagePath(doc1, "img/a.png"), std::string("C:\\proj\\docs\\img\\a.png"));
+#else
+    CHECK_EQ(t.path, std::string("/proj/src/My File.md"));
+    CHECK_EQ(md::ResolveImagePath(doc1, "img/a.png"), std::string("/proj/docs/img/a.png"));
+    CHECK_EQ(md::ResolveImagePath(doc1, "file:///tmp/b.png"), std::string("/tmp/b.png"));
+#endif
+    CHECK(md::ResolveImagePath(doc1, "https://img.shields.io/x.svg").empty());
+}
+
+void TestPdf()
+{
+    namespace pdf = app::pdf;
+    CHECK(pdf::IsPdf("pdf"));
+    CHECK(!pdf::IsPdf("ps"));
+
+    // Geometry: pages stack with a gap, the widest sets the width, fit
+    // width fills the view, and zoom about a point keeps it still.
+    pdf::ViewState view;
+    view.pages = { { 612, 792 }, { 842, 595 } };
+    view.zoom = 1.0f;
+    view.gap = 10;
+    view.margin = 20;
+    const pdf::Layout layout = pdf::LayoutPages(view, 1.0f);
+    CHECK_EQ(layout.pages.size(), (size_t)2);
+    CHECK_EQ(layout.pages[0].rect.w, std::round(612 * pdf::kPointsToPixels));
+    CHECK_EQ(layout.pages[1].rect.y, layout.pages[0].rect.y + layout.pages[0].rect.h + 10);
+    CHECK_EQ(layout.width, std::round(842 * pdf::kPointsToPixels) + 40);
+    const float fit = pdf::FitZoom(view, 1000, 800, 1.0f, pdf::FitMode::Width);
+    CHECK(std::fabs(842 * pdf::kPointsToPixels * fit - (1000 - 40)) < 0.5f);
+    CHECK_EQ(pdf::PageAt(layout, layout.pages[1].rect.y, 300), 1);
+    CHECK_EQ(pdf::ZoomStep(1.0f, true), 1.1f);
+    CHECK_EQ(pdf::ZoomStep(1.0f, false), 0.9f);
+    CHECK_EQ(pdf::ScrollAfterZoom(100, 50, 1.0f, 2.0f), 250.0f);
+    const pdf::RectF r = pdf::RotateNormalized({ 0.1f, 0.2f, 0.3f, 0.1f }, 90);
+    CHECK(std::fabs(r.x - 0.7f) < 1e-5f && std::fabs(r.y - 0.1f) < 1e-5f);
+
+    // The engine, on a PDF made in memory. The document's destructor takes
+    // the lock itself, so it outlives the lock here.
+    platform::PdfDocument doc;
+    std::lock_guard<std::mutex> lock(platform::PdfLock());
+    std::string error;
+    CHECK(!doc.LoadMemory("not a pdf", "", error));
+    CHECK(!error.empty());
+    CHECK(doc.LoadMemory(testpdf::Make(), "", error));
+    CHECK_EQ(doc.PageCount(), 2);
+    const std::vector<pdf::PageSize> sizes = doc.PageSizes();
+    CHECK(sizes.size() == 2 && sizes[1].width == 842 && sizes[1].height == 595);
+    std::vector<unsigned char> rgba;
+    CHECK(doc.Render(0, 102, 132, 0, rgba, error));
+    CHECK_EQ(rgba.size(), (size_t)102 * 132 * 4);
+    // White paper with text on it: grey at this size, but not white.
+    bool inked = false;
+    for (size_t i = 0; i + 3 < rgba.size(); i += 4)
+        if (rgba[i] < 160 && rgba[i + 1] < 160 && rgba[i + 2] < 160 && rgba[i + 3] == 255) inked = true;
+    CHECK(inked);
+    CHECK(rgba[0] == 255 && rgba[1] == 255 && rgba[2] == 255);
+    const std::vector<pdf::OutlineItem> outline = doc.Outline();
+    CHECK(outline.size() == 2 && outline[0].title == "Start" && outline[1].page == 1);
+    const std::vector<pdf::LinkBox> links = doc.Links(0);
+    CHECK_EQ(links.size(), (size_t)2);
+    bool internal = false, web = false;
+    for (const pdf::LinkBox& l : links)
+        {
+        if (l.page == 1) internal = true;
+        if (l.uri == "https://example.com/") web = true;
+        }
+    CHECK(internal);
+    CHECK(web);
+    std::vector<pdf::SearchHit> hits;
+    CHECK(doc.Search(0, "FOX", false, hits));
+    CHECK(doc.Search(1, "fox", false, hits));
+    CHECK_EQ(hits.size(), (size_t)2);
+    hits.clear();
+    CHECK(doc.Search(0, "FOX", true, hits));
+    CHECK(hits.empty());
+    CHECK(doc.PageText(0).find("Hello from davesplorer") != std::string::npos);
+}
 } // namespace
 
 int main()
@@ -1692,6 +1915,8 @@ int main()
     TestUndo();
     TestShortcuts();
     TestImage();
+    TestMarkdown();
+    TestPdf();
     TestAppState();
     TestPinsAndLayouts();
     TestGitRemotes();

@@ -43,6 +43,33 @@ inline ImGuiID FileViewWindowId(int id) { return ImHashStr(("###file" + std::to_
 // active folder view. Returns the index into state.fileViews.
 int  OpenFileView(app::AppState& state, UiState& ui, const std::string& path);
 void CloseFileView(app::AppState& state, UiState& ui, int id);
+// Makes the viewer's dock node a file view asked for; DockBuilder work, so
+// it runs before DockSpace() in the frame.
+void HandleViewerSplit(app::AppState& state, UiState& ui);
+// Brings the active folder view to a file: its folder, with it selected.
+void ShowInFolderView(app::AppState& state, UiState& ui, const std::string& path);
+// The bodies of a PDF's and a Markdown file's views, inside their Begin/End.
+void DrawPdfFile(app::AppState& state, UiState& ui, app::FileView& view, FileViewUi& v);
+void DrawMarkdownFile(app::AppState& state, UiState& ui, app::FileView& view, FileViewUi& v);
+// What a PDF or Markdown view holds, for the tests to check.
+struct PdfViewInfo
+{
+    int         pages = 0;
+    int         currentPage = 0;
+    int         texturesReady = 0;
+    int         hits = 0;
+    bool        needsPassword = false;
+    std::string error;
+};
+PdfViewInfo DescribePdfView(const FileViewUi& v);
+struct MarkdownViewInfo
+{
+    size_t      blocks = 0;
+    size_t      hits = 0;
+    size_t      history = 0;
+    std::string error;
+};
+MarkdownViewInfo DescribeMarkdownView(const FileViewUi& v);
 
 // The Programs window: every program under a folder, by project. Titled
 // after the folder, with the same stable-id scheme as the other windows.

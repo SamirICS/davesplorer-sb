@@ -25,6 +25,8 @@
 #include "ui/Thumbnails.h"
 #include "ui/UiState.h"
 
+#include "TestPdf.h"
+
 #include "imgui.h"
 #include "imgui_internal.h"
 #include "imgui_test_engine/imgui_te_context.h"
@@ -40,7 +42,9 @@
 #include <filesystem>
 #undef Yield   // windows.h defines Yield() as a macro, which breaks ctx->Yield()
 
+#include <chrono>
 #include <cstdio>
+#include <thread>
 #include <cstdlib>
 #include <fstream>
 #include <string>
@@ -142,6 +146,7 @@ void GoToScratch(ImGuiTestContext* ctx, Fixture& fx)
     fx.state.settings.showHidden = false;
     fx.state.undoHistory.clear();
     while (!fx.state.programViews.empty()) app::CloseProgramsView(fx.state, 0);
+    fx.state.fileViews.clear();   // a test that failed with a viewer open must not leave it over the next
     fx.ui = ui::UiState{};
     // A test that failed with a dialog up must not leave it over the next.
     ctx->PopupCloseAll();
@@ -1136,6 +1141,130 @@ void RegisterTests(ImGuiTestEngine* e)
         IM_CHECK_EQ(fx.state.fileViews.size(), (size_t)1);
         IM_CHECK_STR_EQ(app::PathName(fx.state.fileViews[0].path).c_str(), "pic1.png");
         fx.state.settings.openImagesInApp = true;
+    };
+
+    // A Markdown file opens in the viewer on the right of the folder view,
+    // not as a tab over it; a second file joins the first there as a tab;
+    // find counts every match.
+    t = IM_REGISTER_TEST(e, "explorer", "markdown_view_opens_on_the_right");
+    t->TestFunc = [](ImGuiTestContext* ctx) {
+        Fixture& fx = *g_fx;
+        GoToScratch(ctx, fx);
+        WriteFile(app::JoinPath(fx.root, "README.md"), "# Read me\n\nThe fox and the other fox.\n\n- [ ] a task\n\n```\nfox in code\n```\n");
+        WriteFile(app::JoinPath(fx.root, "NOTES.md"), "# Notes\n");
+        app::Refresh(fx.state.active());
+        ctx->Yield(3);
+        RefActiveView(ctx, fx);
+        ctx->ItemDoubleClick("**/###README.md");
+        ctx->Yield(4);
+        IM_CHECK_EQ(fx.state.fileViews.size(), (size_t)1);
+        IM_CHECK(fx.state.fileViews[0].kind == app::FileViewKind::Markdown);
+        const int id = fx.state.fileViews[0].id;
+        const ui::MarkdownViewInfo info = ui::DescribeMarkdownView(fx.ui.fileView(id));
+        IM_CHECK(info.error.empty());
+        IM_CHECK_EQ(info.blocks, (size_t)4);
+
+        // Its own dock node, to the right of the folder view's.
+        const ImGuiDockNode* fileNode = ImGui::DockBuilderGetNode(fx.ui.fileView(id).dockId);
+        const ImGuiDockNode* viewNode = ImGui::DockBuilderGetNode(fx.ui.view(fx.state.active().id).dockId);
+        IM_CHECK(fileNode != nullptr && viewNode != nullptr);
+        if (fileNode && viewNode)
+            {
+            IM_CHECK(fileNode != viewNode);
+            IM_CHECK_GT(fileNode->Pos.x, viewNode->Pos.x);
+            IM_CHECK_EQ(fx.ui.viewerDock, fileNode->ID);
+            }
+
+        // The next file lands in the same node, as a tab.
+        RefActiveView(ctx, fx);
+        ctx->ItemDoubleClick("**/###NOTES.md");
+        ctx->Yield(4);
+        IM_CHECK_EQ(fx.state.fileViews.size(), (size_t)2);
+        IM_CHECK_EQ(fx.ui.fileView(fx.state.fileViews[1].id).dockId, fx.ui.fileView(id).dockId);
+
+        // Find, in the README: two in the text, one in the code block.
+        ctx->SetRef(ImGuiTestRef(ui::FileViewWindowId(id)));
+        ctx->WindowFocus("");
+        ctx->ItemClick("**/###Find");
+        ctx->Yield(2);
+        ctx->KeyCharsAppend("fox");
+        ctx->Yield(2);
+        IM_CHECK_EQ(ui::DescribeMarkdownView(fx.ui.fileView(id)).hits, (size_t)3);
+
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_W);
+        ctx->Yield(2);
+        ctx->SetRef(ImGuiTestRef(ui::FileViewWindowId(fx.state.fileViews.back().id)));
+        ctx->WindowFocus("");
+        ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_W);
+        ctx->Yield(3);
+        IM_CHECK(fx.state.fileViews.empty());
+        IM_CHECK_EQ(fx.state.tabs.size(), (size_t)1);
+    };
+
+    // A PDF opens in the viewer, its pages render on the worker thread and
+    // reach the screen, Next page moves on, and find counts the matches on
+    // both pages.
+    t = IM_REGISTER_TEST(e, "explorer", "pdf_view_renders_steps_and_finds");
+    t->TestFunc = [](ImGuiTestContext* ctx) {
+        Fixture& fx = *g_fx;
+        GoToScratch(ctx, fx);
+        WriteFile(app::JoinPath(fx.root, "doc.pdf"), testpdf::Make().c_str());
+        app::Refresh(fx.state.active());
+        ctx->Yield(3);
+        RefActiveView(ctx, fx);
+        ctx->ItemDoubleClick("**/###doc.pdf");
+        ctx->Yield(4);
+        IM_CHECK_EQ(fx.state.fileViews.size(), (size_t)1);
+        IM_CHECK(fx.state.fileViews[0].kind == app::FileViewKind::Pdf);
+        const int id = fx.state.fileViews[0].id;
+        IM_CHECK_EQ(ui::DescribePdfView(fx.ui.fileView(id)).pages, 2);
+        // Rendering happens on another thread, in real time; the test
+        // engine's frames do not wait for it. Up to five seconds.
+        for (int i = 0; i < 1000 && ui::DescribePdfView(fx.ui.fileView(id)).texturesReady == 0; ++i)
+            {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            ctx->Yield();
+            }
+        IM_CHECK_GT(ui::DescribePdfView(fx.ui.fileView(id)).texturesReady, 0);
+
+        ctx->SetRef(ImGuiTestRef(ui::FileViewWindowId(id)));
+        ctx->ItemClick("**/###FitPage");
+        ctx->Yield(2);
+        ctx->ItemClick("**/###NextPage");
+        ctx->Yield(4);
+        IM_CHECK_EQ(ui::DescribePdfView(fx.ui.fileView(id)).currentPage, 1);
+
+        ctx->ItemClick("**/###Find");
+        ctx->Yield(2);
+        ctx->KeyCharsAppend("fox");
+        for (int i = 0; i < 100 && ui::DescribePdfView(fx.ui.fileView(id)).hits < 2; ++i) ctx->Yield();
+        IM_CHECK_EQ(ui::DescribePdfView(fx.ui.fileView(id)).hits, 2);
+
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_W);
+        ctx->Yield(3);
+        IM_CHECK(fx.state.fileViews.empty());
+    };
+
+    // Not a PDF at all: the viewer says so instead of showing pages.
+    t = IM_REGISTER_TEST(e, "explorer", "pdf_view_bad_file_shows_error");
+    t->TestFunc = [](ImGuiTestContext* ctx) {
+        Fixture& fx = *g_fx;
+        GoToScratch(ctx, fx);
+        WriteFile(app::JoinPath(fx.root, "broken.pdf"), "this is not a PDF");
+        app::Refresh(fx.state.active());
+        ctx->Yield(3);
+        RefActiveView(ctx, fx);
+        ctx->ItemDoubleClick("**/###broken.pdf");
+        ctx->Yield(4);
+        IM_CHECK_EQ(fx.state.fileViews.size(), (size_t)1);
+        const ui::PdfViewInfo info = ui::DescribePdfView(fx.ui.fileView(fx.state.fileViews[0].id));
+        IM_CHECK_EQ(info.pages, 0);
+        IM_CHECK(!info.error.empty());
+        ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_W);
+        ctx->Yield(3);
+        IM_CHECK(fx.state.fileViews.empty());
     };
 
 #ifdef __linux__

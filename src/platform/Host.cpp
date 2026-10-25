@@ -208,6 +208,7 @@ int RunApplication(int argc, char** argv)
 
     ImGui_ImplSDL3_InitForSDLRenderer(window, renderer);
     ImGui_ImplSDLRenderer3_Init(renderer);
+    if (!state.viewOnStart.empty()) ui::OpenFileView(state, uiState, state.viewOnStart);
     SDL_ShowWindow(window);
     InitDragOut(window);
 

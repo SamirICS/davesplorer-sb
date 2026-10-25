@@ -116,6 +116,61 @@ endif()
 add_library(stb_image STATIC third_party/stb/stb_image_impl.c)
 target_include_directories(stb_image SYSTEM PUBLIC ${CMAKE_SOURCE_DIR}/third_party/stb)
 
+# md4c, the CommonMark parser behind the Markdown viewer. Only its parser
+# is wanted: SOURCE_SUBDIR points at a folder with no CMakeLists.txt, so
+# FetchContent downloads it without configuring md2html and the rest.
+FetchContent_Declare(md4c
+    GIT_REPOSITORY https://github.com/mity/md4c.git
+    GIT_TAG        release-0.5.2
+    GIT_SHALLOW    TRUE
+    SOURCE_SUBDIR  no-cmake)
+FetchContent_MakeAvailable(md4c)
+add_library(md4c STATIC ${md4c_SOURCE_DIR}/src/md4c.c)
+target_include_directories(md4c SYSTEM PUBLIC ${md4c_SOURCE_DIR}/src)
+
+# PDFium, Chromium's PDF engine, for the PDF viewer. Building it needs
+# depot_tools and an hour, so the pdfium-binaries project's prebuilt shared
+# library is used, the same release davepdf ships, verified by hash. It is
+# staged beside the executable (in the bundle's Frameworks on macOS).
+set(DSP_PDFIUM_RELEASE 8111)
+set(DSP_PDFIUM_VERSION "158.0.8111.0")
+if(WIN32)
+    set(DSP_PDFIUM_ASSET win-x64)
+    set(DSP_PDFIUM_SHA256 3452d11031050ec65e57f180215b57b9e6d465e3fbedafa8a77ad90885c7d23e)
+elseif(APPLE)
+    if(CMAKE_OSX_ARCHITECTURES MATCHES "x86_64" OR (NOT CMAKE_OSX_ARCHITECTURES AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64"))
+        set(DSP_PDFIUM_ASSET mac-x64)
+        set(DSP_PDFIUM_SHA256 e7fece4693f65a7e47f84fa38099068d573d4dcbd46b1a3c8d2c26581c308466)
+    else()
+        set(DSP_PDFIUM_ASSET mac-arm64)
+        set(DSP_PDFIUM_SHA256 46c674298c60123f1195c2a03c65ee08c4783c84874ce4f5b3a054abb3ecaf30)
+    endif()
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
+    set(DSP_PDFIUM_ASSET linux-arm64)
+    set(DSP_PDFIUM_SHA256 042de247138f96341534cccf24ed21c2550a7245b936bb4a60d2340120000f05)
+else()
+    set(DSP_PDFIUM_ASSET linux-x64)
+    set(DSP_PDFIUM_SHA256 bdc60126399f39fe768566a18d4be055a7b3681bc9e248e8a6656b4f6cae0aa2)
+endif()
+FetchContent_Declare(pdfium
+    URL      https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/${DSP_PDFIUM_RELEASE}/pdfium-${DSP_PDFIUM_ASSET}.tgz
+    URL_HASH SHA256=${DSP_PDFIUM_SHA256}
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+FetchContent_MakeAvailable(pdfium)
+add_library(pdfium SHARED IMPORTED GLOBAL)
+set_target_properties(pdfium PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "${pdfium_SOURCE_DIR}/include")
+if(WIN32)
+    set_target_properties(pdfium PROPERTIES
+        IMPORTED_LOCATION "${pdfium_SOURCE_DIR}/bin/pdfium.dll"
+        IMPORTED_IMPLIB   "${pdfium_SOURCE_DIR}/lib/pdfium.dll.lib")
+elseif(APPLE)
+    set_target_properties(pdfium PROPERTIES IMPORTED_LOCATION "${pdfium_SOURCE_DIR}/lib/libpdfium.dylib")
+else()
+    set_target_properties(pdfium PROPERTIES
+        IMPORTED_LOCATION "${pdfium_SOURCE_DIR}/lib/libpdfium.so"
+        IMPORTED_SONAME   "libpdfium.so")
+endif()
+
 # ---------------------------------------------------------------------------
 # Application libraries.
 #   dsp_app : state and logic, plus the OS layer it calls. No ImGui.
@@ -153,6 +208,9 @@ add_library(dsp_app STATIC
     src/app/Image.cpp
     src/app/Layout.cpp
     src/app/GitRemote.cpp
+    src/app/Markdown.cpp
+    src/app/Pdf.cpp
+    src/platform/PdfEngine.cpp
     ${DSP_PLATFORM_DIR}/Strings.${DSP_PLATFORM_EXT}
     ${DSP_PLATFORM_DIR}/Paths.${DSP_PLATFORM_EXT}
     ${DSP_PLATFORM_DIR}/FileSystem.${DSP_PLATFORM_EXT}
@@ -160,7 +218,8 @@ add_library(dsp_app STATIC
     ${DSP_PLATFORM_DIR}/DragDrop.${DSP_PLATFORM_EXT}
     ${DSP_PLATFORM_DIR}/Shell.${DSP_PLATFORM_EXT})
 target_include_directories(dsp_app PUBLIC src)
-target_link_libraries(dsp_app PUBLIC dsp_strict stb_image)
+target_link_libraries(dsp_app PUBLIC dsp_strict stb_image md4c pdfium)
+target_compile_definitions(dsp_app PRIVATE DSP_PDFIUM_VERSION="${DSP_PDFIUM_VERSION}")
 if(WIN32)
     target_link_libraries(dsp_app PUBLIC shell32 ole32 shlwapi gdi32)
 elseif(APPLE)
@@ -185,6 +244,8 @@ add_library(dsp_ui STATIC
     src/ui/FilesPane.cpp
     src/ui/FileGrid.cpp
     src/ui/ImageView.cpp
+    src/ui/PdfView.cpp
+    src/ui/MarkdownView.cpp
     src/ui/ProgramsView.cpp
     src/ui/Layouts.cpp
     src/ui/Textures.cpp
@@ -248,6 +309,30 @@ add_custom_command(TARGET davesplorer POST_BUILD
             "${CMAKE_SOURCE_DIR}/assets" "${DSP_ASSET_DEST}"
     COMMENT "Staging assets for davesplorer")
 
+# PDFium beside the executable, with its licences beside the fonts'.
+# Linux finds it through $ORIGIN; Windows looks beside the exe anyway. The
+# macOS dylib names itself "./libpdfium.dylib", so the bundle's copy is
+# renamed for the loader to find in Frameworks.
+add_custom_command(TARGET davesplorer POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${DSP_ASSET_DEST}/licenses"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${pdfium_SOURCE_DIR}/LICENSE" "${DSP_ASSET_DEST}/licenses/PDFium.txt"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${md4c_SOURCE_DIR}/LICENSE.md" "${DSP_ASSET_DEST}/licenses/md4c.md"
+    COMMENT "Staging third-party licences")
+if(APPLE)
+    add_custom_command(TARGET davesplorer POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_BUNDLE_CONTENT_DIR:davesplorer>/Frameworks"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:pdfium>" "$<TARGET_BUNDLE_CONTENT_DIR:davesplorer>/Frameworks/libpdfium.dylib"
+        COMMAND install_name_tool -change "./libpdfium.dylib" "@executable_path/../Frameworks/libpdfium.dylib" "$<TARGET_FILE:davesplorer>"
+        COMMENT "Bundling PDFium")
+else()
+    add_custom_command(TARGET davesplorer POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:pdfium>" "${DSP_STAGE_DIR}"
+        COMMENT "Staging PDFium")
+    if(NOT WIN32)
+        set_target_properties(davesplorer PROPERTIES BUILD_RPATH "$ORIGIN")
+    endif()
+endif()
+
 # The Explorer interceptor: a standalone, dependency-free Win32 exe that
 # Windows runs in place of explorer.exe when register.ps1 -Interceptor is
 # used. Kept tiny and separate from the app because it runs on the shell's
@@ -287,6 +372,11 @@ target_link_libraries(davesplorer_e2e_tests PRIVATE dsp_ui imgui_test_engine)
 target_compile_definitions(davesplorer_e2e_tests PRIVATE DSP_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets")
 set_target_properties(davesplorer_e2e_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${DSP_TEST_DIR}")
 add_test(NAME e2e_tests COMMAND davesplorer_e2e_tests)
+if(WIN32)
+    # Windows has no rpath: the tests get their own copy of PDFium.
+    add_custom_command(TARGET davesplorer_unit_tests POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:pdfium>" "${DSP_TEST_DIR}")
+endif()
 
 if(NOT WIN32)
     # A memory GSettings backend and a private XDG data directory: the dash

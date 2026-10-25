@@ -137,23 +137,27 @@ void BuildDefaultLayout(app::AppState& state, UiState& ui, ImGuiID dockspaceId, 
     if (ImGuiDockNode* nav = ImGui::DockBuilderGetNode(left))
         nav->SetLocalFlags(nav->LocalFlags | ImGuiDockNodeFlags_HiddenTabBar);
     ImGui::DockBuilderDockWindow(kNavWindow, left);
+    // File views get their own half on the right of the folder views.
+    ImGuiID views = right;
+    ui.viewerDock = 0;
+    if (!state.fileViews.empty()) ImGui::DockBuilderSplitNode(right, ImGuiDir_Right, 0.5f, &ui.viewerDock, &views);
     for (const app::Tab& tab : state.tabs)
         {
-        ImGui::DockBuilderDockWindow(ViewWindowName(state, tab).c_str(), right);
+        ImGui::DockBuilderDockWindow(ViewWindowName(state, tab).c_str(), views);
         ui.view(tab.id).shown = true;   // docked here explicitly; no FirstUseEver hint needed
         }
     for (const app::FileView& f : state.fileViews)
         {
-        ImGui::DockBuilderDockWindow(FileViewWindowName(state, f).c_str(), right);
+        ImGui::DockBuilderDockWindow(FileViewWindowName(state, f).c_str(), ui.viewerDock);
         ui.fileView(f.id).shown = true;
         }
     for (const app::ProgramsView& p : state.programViews)
         {
-        ImGui::DockBuilderDockWindow(ProgramsWindowName(state, p).c_str(), right);
+        ImGui::DockBuilderDockWindow(ProgramsWindowName(state, p).c_str(), views);
         ui.programsView(p.id).shown = true;
         }
     ImGui::DockBuilderFinish(dockspaceId);
-    ui.defaultViewDock = right;
+    ui.defaultViewDock = views;
 }
 
 // Splits the dock node of one view and opens a new view in the new half.
@@ -380,6 +384,7 @@ void DrawMenuBar(app::AppState& state, UiState& ui)
             }
         ImGui::MenuItem("File name extensions", nullptr, &s.showExtensions);
         ImGui::MenuItem("Open images in Davesplorer", nullptr, &s.openImagesInApp);
+        ImGui::MenuItem("Open PDF and Markdown in Davesplorer", nullptr, &s.openDocumentsInApp);
         ImGui::Separator();
         if (ImGui::BeginMenu("Sort by"))
             {
@@ -500,13 +505,14 @@ void HandleGlobalShortcuts(app::AppState& state, UiState& ui)
         v.addressWantFocus = true;
         v.addressText = tab.path;
         }
-    if (chord(ImGuiMod_Ctrl | ImGuiKey_F) || chord(ImGuiMod_Ctrl | ImGuiKey_E)) ui.view(tab.id).searchWantFocus = true;
+    // A focused PDF or Markdown view has a find of its own.
+    if ((chord(ImGuiMod_Ctrl | ImGuiKey_F) || chord(ImGuiMod_Ctrl | ImGuiKey_E)) && ui.activeFileView < 0) ui.view(tab.id).searchWantFocus = true;
     if (chord(ImGuiMod_Ctrl | ImGuiKey_Equal) || chord(ImGuiMod_Ctrl | ImGuiKey_KeypadAdd)) ZoomBy(state, 0.1f);
     if (chord(ImGuiMod_Ctrl | ImGuiKey_Minus) || chord(ImGuiMod_Ctrl | ImGuiKey_KeypadSubtract)) ZoomBy(state, -0.1f);
     if (chord(ImGuiMod_Ctrl | ImGuiKey_0) || chord(ImGuiMod_Ctrl | ImGuiKey_Keypad0)) ZoomReset(state);
     if (chord(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_N) && !tab.path.empty()) StartNewFolder(state, ui);
     if (chord(ImGuiMod_Ctrl | ImGuiKey_Z) && !state.undoHistory.empty()) StartUndo(state, ui, state.undoHistory.size() - 1);
-    if (io.KeyCtrl && io.MouseWheel != 0.0f) ZoomBy(state, io.MouseWheel > 0 ? 0.1f : -0.1f);
+    if (io.KeyCtrl && io.MouseWheel != 0.0f && !ui.wheelTaken) ZoomBy(state, io.MouseWheel > 0 ? 0.1f : -0.1f);
 }
 
 } // namespace
@@ -514,6 +520,7 @@ void HandleGlobalShortcuts(app::AppState& state, UiState& ui)
 void DrawFrame(app::AppState& state, UiState& ui)
 {
     ui.animating = false;   // whatever still moves says so again this frame
+    ui.wheelTaken = false;
     thumbnails::Pump();
     textures::Pump();
     BeginDragDropFrame(state, ui);
@@ -544,6 +551,7 @@ void DrawFrame(app::AppState& state, UiState& ui)
         }
     HandleLayoutRequests(state, ui, viewport->WorkSize);
     HandleSplitRequest(state, ui);
+    HandleViewerSplit(state, ui);
     ImGui::DockSpace(dockspaceId, ImVec2(0, 0), ImGuiDockNodeFlags_None);
     // The central node is where views go by default; it moves around as
     // the user splits, so look it up each frame.

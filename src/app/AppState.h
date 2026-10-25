@@ -25,13 +25,23 @@ struct Clipboard
     bool cut = false;
 };
 
+// What a file view shows, which decides how it is drawn.
+enum class FileViewKind
+{
+    Image,
+    Pdf,
+    Markdown,
+};
+
 // A file shown inside the app rather than handed to another program: an
-// image in the built-in viewer. Its own dockable window, like a folder view,
-// but never the "active tab" that menus and the navigation pane act on.
+// image, a PDF or a Markdown file in the built-in viewer. Its own dockable
+// window, like a folder view, but never the "active tab" that menus and the
+// navigation pane act on.
 struct FileView
 {
-    int         id = 0;          // from the same counter as tabs, so window ids never collide
-    std::string path;
+    int          id = 0;          // from the same counter as tabs, so window ids never collide
+    std::string  path;
+    FileViewKind kind = FileViewKind::Image;
 };
 
 struct AppState
@@ -70,6 +80,7 @@ struct AppState
     std::vector<UndoEntry> undoHistory;   // newest last, at most kUndoDepth
 
     std::string statusMessage;   // transient note for the status bar
+    std::string viewOnStart;     // a file named on the command line that the built-in viewer shows
     bool quitRequested = false;
 
     Tab&       active();

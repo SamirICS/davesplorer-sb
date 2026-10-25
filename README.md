@@ -17,7 +17,8 @@ sudo apt install build-essential cmake ninja-build git pkg-config libglib2.0-dev
 ```
 
 Use CMake 3.24+ and a compiler supporting C++20. The first configure downloads
-SDL3, Dear ImGui, and the test engine; subsequent builds reuse them.
+SDL3, Dear ImGui, the test engine, md4c and the PDFium prebuilt (checked
+against its SHA-256); subsequent builds reuse them.
 
 ```sh
 ./build.sh                         # configure, build, and run both test suites
@@ -154,8 +155,9 @@ entry is greyed out everywhere else, including KDE Plasma, Windows and macOS.
   the details table, and the choice is remembered for new views. Names are
   cut to two lines; the tooltip has the whole one.
 - **Image viewer**: double-clicking an image opens it in a file view, a
-  dockable window beside the folder view (drag its tab anywhere a folder
-  view can go). Wheel zooms about the cursor, dragging pans, double-click
+  dockable window on the right of the folder view (drag its tab anywhere
+  a folder view can go). The first file view splits the folder view in
+  two; later ones join it there as tabs. Wheel zooms about the cursor, dragging pans, double-click
   flips between fit and real pixels, `+`/`-`/`0`/`1` zoom in, out, fit and
   100%, `Left`/`Right` step through the folder's images, `Ctrl+W` closes.
   The toolbar jumps the folder view to the file or opens it with the
@@ -164,6 +166,32 @@ entry is greyed out everywhere else, including KDE Plasma, Windows and macOS.
   and "Open with default program" are always there. Very large images are
   shown reduced; animated GIFs show their first frame; EXIF rotation is
   not applied.
+- **PDF viewer**: double-clicking a `.pdf` shows every page in one scrolled
+  column, rendered by PDFium on a thread of its own (the engine and canvas
+  come from [davepdf](https://github.com/evaderkrub/davepdf)). Fit width,
+  fit page, zoom (toolbar, `+`/`-`, `Ctrl`+wheel about the pointer),
+  rotate (`R`), the page box to jump to a page, the document's outline
+  under Contents, and its links: inside the document they jump, web links
+  open in the browser. `Ctrl+F` finds, lighting up every match; `Enter`
+  and `F3` step through them. Drag across text to select it and `Ctrl+C`
+  copies it (the whole page when nothing is selected); drag elsewhere
+  pans. A password-protected file asks for its password.
+- **Markdown viewer**: a `.md` file is shown rendered, the way a code host
+  shows a README: headings, emphasis, inline code, lists and task lists,
+  quotes, code blocks with a Copy button, tables with their alignment,
+  the file's own pictures (web pictures, such as badges, show as their
+  alt text and are never fetched), and raw HTML reduced to what reads as
+  text, keeping `<img>` and `<br>`. Links go where they point: a heading
+  in the file, another Markdown file (opened in the same view, with Back,
+  `Backspace` or the mouse's back button to return), a folder (in the
+  folder view), another file, or a web page in the browser. Contents
+  lists the headings, `Ctrl+F` finds, Source shows the text itself to
+  select and copy, and an edit saved in another program is picked up
+  within a second. **View > Open PDF and Markdown in Davesplorer** turns
+  the double-click behaviour off for both; "View in Davesplorer" stays in
+  the context menu. `davesplorer file.pdf` (or `.md`) opens the folder
+  with the file shown, so Davesplorer can be the desktop's handler for
+  either.
 - **Context menus** on items and on the empty area, plus "Show in Windows
   Explorer" and "Open terminal here". Each view's status bar also has New
   folder, Open terminal and Open in Windows Explorer buttons at its right
@@ -391,4 +419,7 @@ third-party assets keep their own licenses, each beside the files in
 `assets/fonts`: Open Sans and Fira Code under the SIL Open Font License 1.1,
 Material Icons under the Apache License 2.0. SDL3, Dear ImGui and the ImGui
 Test Engine are fetched at build time under their respective zlib and MIT
-licenses.
+licenses, as is md4c (MIT). PDFium is fetched as the prebuilt shared
+library from the pdfium-binaries project and staged beside the executable;
+its license (BSD-3-Clause, with those of the libraries it bundles) is
+staged as `assets/licenses/PDFium.txt`, and md4c's beside it.

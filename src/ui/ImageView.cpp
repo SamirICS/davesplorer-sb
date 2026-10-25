@@ -1,7 +1,8 @@
-// The built-in image viewer: a file view is a dockable window showing one
-// image, with zoom and pan, and Previous/Next through the folder's other
-// images. It sits beside the folder views as a tab, floats, or docks
-// anywhere they can.
+// The built-in viewer: a file view is a dockable window showing one file.
+// An image is drawn here, with zoom and pan, and Previous/Next through the
+// folder's other images; a PDF or Markdown file is handed to its own
+// drawing code. File views open in a dock node on the right of the folder
+// views, and from there float or dock anywhere the folder views can.
 #include "ui/MainWindow.h"
 #include "ui/IconsMaterialDesign.h"
 #include "ui/Textures.h"
@@ -34,20 +35,51 @@ std::string FileViewWindowName(const app::AppState&, const app::FileView& view)
     return app::PathName(view.path) + "###file" + std::to_string(view.id);
 }
 
+bool ViewerDockAlive(const UiState& ui)
+{
+    if (ui.viewerDock == 0) return false;
+    const ImGuiDockNode* node = ImGui::DockBuilderGetNode(ui.viewerDock);
+    return node != nullptr && node->IsLeafNode();
+}
+
 int OpenFileView(app::AppState& state, UiState& ui, const std::string& path)
 {
-    // Beside the active folder view, as a tab, the way a new folder view
-    // lands; a view already showing the file is simply brought forward.
-    ImGuiID target = 0;
-    if (!state.tabs.empty()) target = ui.view(state.active().id).dockId;
-    if (target == 0) target = ui.defaultViewDock;
-
+    // Into the viewer half on the right while there is one, as a tab;
+    // otherwise the next frame splits the active folder view to make it.
+    // A view already showing the file is simply brought forward.
     const bool existed = app::FindFileView(state, path) >= 0;
     const int index = app::OpenFileView(state, path);
-    FileViewUi& v = ui.fileView(state.fileViews[(size_t)index].id);
+    const int id = state.fileViews[(size_t)index].id;
+    FileViewUi& v = ui.fileView(id);
     v.wantFocus = true;
-    if (!existed) v.dockHint = target;
+    if (!existed)
+        {
+        if (ViewerDockAlive(ui)) v.dockHint = ui.viewerDock;
+        else ui.viewerSplitFor = id;
+        }
     return index;
+}
+
+void HandleViewerSplit(app::AppState& state, UiState& ui)
+{
+    if (ui.viewerSplitFor < 0) return;
+    const int id = ui.viewerSplitFor;
+    ImGuiID node = 0;
+    if (!state.tabs.empty()) node = ui.view(state.active().id).dockId;
+    if (node == 0 || ImGui::DockBuilderGetNode(node) == nullptr) node = ui.defaultViewDock;
+    const ImGuiDockNode* target = node != 0 ? ImGui::DockBuilderGetNode(node) : nullptr;
+    // On the first frames of the program the dock nodes are still growing
+    // to the window, and the folder view's node, the central one, takes
+    // all the growth after a split: one made now would come out narrow.
+    if (ImGui::GetFrameCount() < 4) return;
+    ui.viewerSplitFor = -1;
+    // The folder views float, or there are none: the file view lands
+    // wherever ImGui puts a new window, and that becomes the viewer.
+    if (target == nullptr) return;
+    ImGuiID right = 0, rest = 0;
+    ImGui::DockBuilderSplitNode(node, ImGuiDir_Right, 0.5f, &right, &rest);
+    ui.fileView(id).dockHint = right;
+    ui.viewerDock = right;
 }
 
 void CloseFileView(app::AppState& state, UiState& ui, int id)
@@ -56,7 +88,7 @@ void CloseFileView(app::AppState& state, UiState& ui, int id)
     if (it != ui.fileViews.end())
         {
         textures::Release(it->second.texture);
-        ui.fileViews.erase(it);
+        ui.fileViews.erase(it);   // a PDF or Markdown view's state releases its own textures
         }
     if (ui.activeFileView == id) ui.activeFileView = -1;
     for (int i = 0; i < (int)state.fileViews.size(); ++i)
@@ -193,25 +225,6 @@ void DrawCheckerboard(ImDrawList* dl, ImVec2 imgMin, ImVec2 imgMax, ImRect clip,
             const ImVec2 p1(std::min(r.Max.x, imgMin.x + (cx + 1) * cell), std::min(r.Max.y, imgMin.y + (cy + 1) * cell));
             if (p0.x < p1.x && p0.y < p1.y) dl->AddRectFilled(p0, p1, b);
             }
-}
-
-// Brings the active folder view to the file: navigates it to the folder
-// and selects the file, the way "Show in folder" does in a browser.
-void ShowInFolderView(app::AppState& state, UiState& ui, const std::string& path)
-{
-    if (state.tabs.empty()) return;
-    app::Tab& tab = state.active();
-    const std::string folder = app::ParentPath(path);
-    std::string error;
-    if (!SamePath(tab.path, folder) && !app::NavigateTo(tab, folder, error))
-        {
-        ShowError(ui, error);
-        return;
-        }
-    app::ClearSelection(tab);
-    tab.selectOnLoad = app::PathName(path);
-    app::Refresh(tab);
-    ui.view(tab.id).wantFocus = true;
 }
 
 void DrawImageToolbar(app::AppState& state, UiState& ui, app::FileView& view, FileViewUi& v, ImVec2 canvasCenter)
@@ -373,10 +386,30 @@ void HandleImageKeys(app::FileView& view, FileViewUi& v, ImVec2 canvasCenter)
 
 } // namespace
 
+// Brings the active folder view to the file: navigates it to the folder
+// and selects the file, the way "Show in folder" does in a browser.
+void ShowInFolderView(app::AppState& state, UiState& ui, const std::string& path)
+{
+    if (state.tabs.empty()) return;
+    app::Tab& tab = state.active();
+    const std::string folder = app::ParentPath(path);
+    std::string error;
+    if (!SamePath(tab.path, folder) && !app::NavigateTo(tab, folder, error))
+        {
+        ShowError(ui, error);
+        return;
+        }
+    app::ClearSelection(tab);
+    tab.selectOnLoad = app::PathName(path);
+    app::Refresh(tab);
+    ui.view(tab.id).wantFocus = true;
+}
+
 bool DrawFileView(app::AppState& state, UiState& ui, int index)
 {
     app::FileView& view = state.fileViews[(size_t)index];
     FileViewUi& v = ui.fileView(view.id);
+    if (ui.viewerSplitFor == view.id) return false;   // its dock node is made next frame
 
     if (v.wantFocus)
         {
@@ -397,12 +430,29 @@ bool DrawFileView(app::AppState& state, UiState& ui, int index)
     const std::string name = FileViewWindowName(state, view);
     bool open = true;
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(6, 6));
-    const bool visible = ImGui::Begin(name.c_str(), &open, ImGuiWindowFlags_NoCollapse);
+    // Each kind scrolls its own canvas; the window itself never does.
+    const bool visible = ImGui::Begin(name.c_str(), &open, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     ImGui::PopStyleVar();
     if (visible)
         {
         v.dockId = ImGui::GetWindowDockID();
-        if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) ui.activeFileView = view.id;
+        if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
+            {
+            ui.activeFileView = view.id;
+            // Dragged somewhere else, the file view takes the viewer with it.
+            if (v.dockId != 0) ui.viewerDock = v.dockId;
+            }
+        }
+    if (visible && view.kind == app::FileViewKind::Pdf)
+        {
+        DrawPdfFile(state, ui, view, v);
+        }
+    else if (visible && view.kind == app::FileViewKind::Markdown)
+        {
+        DrawMarkdownFile(state, ui, view, v);
+        }
+    else if (visible)
+        {
         LoadIfNeeded(view, v);
 
         // The canvas centre is what keyboard and toolbar zooms pivot on;
