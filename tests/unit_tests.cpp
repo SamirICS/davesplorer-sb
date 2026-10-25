@@ -388,6 +388,16 @@ void TestProgramScan()
     fs::permissions(script, fs::perms::owner_exec, fs::perm_options::add);
     fs::create_directory_symlink(fs::path(tmp.path) / "projA", fs::path(tmp.path) / "projA/loop");
     fs::create_symlink(app, fs::path(tmp.path) / "projB/app-link");
+    // A build folder linked to another disk is walked, under the link's
+    // path; a link to a folder already in the tree adds nothing.
+    TempDir elsewhere("programs-elsewhere");
+    const fs::path linkedTarget = fs::path(elsewhere.path) / "vspyai";
+    fs::create_directories(linkedTarget);
+    fs::copy_file(elf, linkedTarget / "linked-app");
+    fs::permissions(linkedTarget / "linked-app", fs::perms::owner_all);
+    fs::create_directory_symlink(linkedTarget, fs::path(tmp.path) / "projB/build");
+    const std::string linkedApp = (fs::path(tmp.path) / "projB/build/linked-app").string();
+    fs::create_directory_symlink(fs::path(tmp.path) / "projA/build/stage", fs::path(tmp.path) / "projB/stage-link");
 
     // The ELF check on its own.
     CHECK(platform::IsElfProgram(app));
@@ -406,6 +416,7 @@ void TestProgramScan()
     fs::last_write_time(app, now - std::chrono::hours(48));
     fs::last_write_time(top, now - std::chrono::hours(72));
     fs::last_write_time(tool, now - std::chrono::hours(1));
+    fs::last_write_time(linkedApp, now - std::chrono::hours(2));
     fs::last_write_time(cargo, now - std::chrono::hours(24));
     fs::last_write_time(example, now - std::chrono::hours(30));
 
@@ -428,7 +439,7 @@ void TestProgramScan()
     CHECK(!view.scanning);
     CHECK(!view.truncated);
     CHECK(view.folders > 5);
-    CHECK_EQ(view.programs.size(), (size_t)5);
+    CHECK_EQ(view.programs.size(), (size_t)6);
     for (const app::Program& p : view.programs)
         {
         if (p.path == app)
@@ -438,6 +449,8 @@ void TestProgramScan()
             CHECK_EQ(p.name, "app");
             }
         if (p.path == tool) CHECK_EQ(p.relDir, "out");
+        if (p.path == linkedApp) CHECK_EQ(p.relDir, "build");
+        CHECK(p.path.find("stage-link") == std::string::npos);
         if (p.path == cargo) CHECK_EQ(p.relDir, "target/release");
         if (p.path == example) CHECK_EQ(p.relDir, "target/release/examples");
         if (p.path == top) CHECK_EQ(p.project, "");
@@ -448,7 +461,7 @@ void TestProgramScan()
     // them, and single-folder runs below a project compacted into one.
     const std::vector<app::ProgramNode> tree = app::BuildProgramTree(view.programs, "");
     auto nodeAt = [&](int n) -> const app::ProgramNode& { return tree[(size_t)n]; };
-    CHECK_EQ(tree[0].count, (size_t)5);
+    CHECK_EQ(tree[0].count, (size_t)6);
     CHECK_EQ(tree[0].folders.size(), (size_t)3);
     CHECK_EQ(tree[0].programs.size(), (size_t)1);
     if (tree[0].folders.size() == 3 && tree[0].programs.size() == 1)
@@ -497,7 +510,7 @@ void TestProgramScan()
         app::TickAppState(state);
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
-    CHECK_EQ(state.programViews[0].programs.size(), (size_t)5);
+    CHECK_EQ(state.programViews[0].programs.size(), (size_t)6);
     app::CloseProgramsView(state, 0);
     CHECK(state.programViews.empty());
 }

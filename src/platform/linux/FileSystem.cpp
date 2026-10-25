@@ -118,6 +118,12 @@ bool IsElfProgram(const std::string& path)
     close(fd);
     return program;
 }
+std::string FolderIdentity(const std::string& path)
+{
+    struct stat st{};
+    if (stat(path.c_str(), &st) != 0 || !S_ISDIR(st.st_mode)) return {};
+    return std::to_string((unsigned long long)st.st_dev) + ":" + std::to_string((unsigned long long)st.st_ino);
+}
 bool IsDirectory(const std::string& path)
 {
     std::error_code ec;

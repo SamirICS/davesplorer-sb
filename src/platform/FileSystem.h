@@ -74,6 +74,11 @@ bool IsDirectory(const std::string& path);
 // caller has checked the execute bit already. False on other platforms.
 bool IsElfProgram(const std::string& path);
 
+// What a folder is, whatever path reached it: two paths with the same
+// identity are the same folder (a link and its target, say). Empty when it
+// cannot be told, and always on platforms other than Linux.
+std::string FolderIdentity(const std::string& path);
+
 // "Text Document", "File folder", "PNG File"... as the shell names them.
 std::string FileTypeName(const std::string& extension, bool isDirectory);
 

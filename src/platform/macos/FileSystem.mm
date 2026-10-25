@@ -255,6 +255,8 @@ bool MoveToRecycleBin(const std::vector<std::string>& paths, std::string& error)
         }
 }
 bool IsElfProgram(const std::string&) { return false; }
+
+std::string FolderIdentity(const std::string&) { return {}; }
 bool RestoreFromRecycleBin(const std::string& originalPath, std::string& error)
 {
     // The Finder keeps where an item came from in the Trash's .DS_Store,

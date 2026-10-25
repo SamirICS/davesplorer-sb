@@ -236,6 +236,8 @@ bool PathExists(const std::string& path)
 
 bool IsElfProgram(const std::string&) { return false; }
 
+std::string FolderIdentity(const std::string&) { return {}; }
+
 bool IsDirectory(const std::string& path)
 {
     const DWORD a = GetFileAttributesW(Utf8ToWide(path).c_str());

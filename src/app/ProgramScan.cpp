@@ -13,6 +13,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <thread>
 #include <utility>
 
@@ -78,9 +79,13 @@ void RunWalk(Walk& walk)
         lastFlush = Clock::now();
     };
 
-    // Depth first, so one project's programs arrive together.
+    // Depth first, so one project's programs arrive together. Linked
+    // folders wait at the bottom of the stack: by the time one is walked,
+    // every folder reachable without links has been, so a link into the
+    // tree is seen as a folder already walked and the real path wins.
     struct Folder { std::string path; int depth; bool inCargoProfile; };
-    std::vector<Folder> stack{ { walk.root, 0, false } };
+    std::deque<Folder> stack{ { walk.root, 0, false } };
+    std::set<std::string> walked;   // folder identities, so a link loop ends
     std::vector<platform::FileEntry> entries;
     while (!stack.empty() && !walk.cancelled)
         {
@@ -88,6 +93,8 @@ void RunWalk(Walk& walk)
         const std::string& dir = folder.path;
         const int depth = folder.depth;
         stack.pop_back();
+        const std::string identity = platform::FolderIdentity(dir);
+        if (!identity.empty() && !walked.insert(identity).second) continue;
         if (++folders > kMaxProgramFolders)
             {
             truncated = true;
@@ -100,16 +107,21 @@ void RunWalk(Walk& walk)
             if (!e.isDirectory && e.name == ".cargo-lock") cargoProfile = true;
         for (const platform::FileEntry& e : entries)
             {
-            // Links are skipped both ways: a linked folder can loop, and a
-            // linked program is the same program listed twice.
-            if (e.isReparsePoint || e.isHidden) continue;
+            if (e.isHidden) continue;
             if (e.isDirectory)
                 {
+                // A linked folder is followed (a build folder is often a
+                // link to another disk) only where its identity can be
+                // told, since that is what stops a loop.
                 if (SkipFolderForPrograms(e.name, cargoProfile)) continue;
+                if (e.isReparsePoint && platform::FolderIdentity(e.path).empty()) continue;
                 if (depth + 1 > kMaxProgramDepth) truncated = true;
+                else if (e.isReparsePoint) stack.push_front({ e.path, depth + 1, cargoProfile });
                 else stack.push_back({ e.path, depth + 1, cargoProfile });
                 continue;
                 }
+            // A linked program is the same program listed twice.
+            if (e.isReparsePoint) continue;
             if (!e.isExecutable || (folder.inCargoProfile && IsCargoHashedCopy(e.name))) continue;
             if (!platform::IsElfProgram(e.path)) continue;
             Program p;
