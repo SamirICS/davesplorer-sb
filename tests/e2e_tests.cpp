@@ -44,6 +44,7 @@
 
 #include <chrono>
 #include <cstdio>
+#include <cstring>
 #include <thread>
 #include <cstdlib>
 #include <fstream>
@@ -1200,6 +1201,83 @@ void RegisterTests(ImGuiTestEngine* e)
         ctx->Yield(3);
         IM_CHECK(fx.state.fileViews.empty());
         IM_CHECK_EQ(fx.state.tabs.size(), (size_t)1);
+    };
+
+    // A text file opens in the viewer as text: its lines, find, select all
+    // and copy. A file with no extension is offered by the context menu when
+    // it reads as text, and an edit made on disk shows in the open view.
+    t = IM_REGISTER_TEST(e, "explorer", "text_view_opens_finds_copies_reloads");
+    t->TestFunc = [](ImGuiTestContext* ctx) {
+        Fixture& fx = *g_fx;
+        GoToScratch(ctx, fx);
+        fx.state.settings.openTextInApp = true;
+        const char* source = "import os\n\ndef fox():\n\treturn 'Fox'\n# the fox again\n";
+        WriteFile(app::JoinPath(fx.root, "script.py"), source);
+        WriteFile(app::JoinPath(fx.root, "build"), "#!/bin/sh\nmake fox\n");
+        app::Refresh(fx.state.active());
+        ctx->Yield(3);
+        RefActiveView(ctx, fx);
+        ctx->ItemDoubleClick("**/###script.py");
+        ctx->Yield(4);
+        IM_CHECK_EQ(fx.state.fileViews.size(), (size_t)1);
+        IM_CHECK(fx.state.fileViews[0].kind == app::FileViewKind::Text);
+        const int id = fx.state.fileViews[0].id;
+        ui::TextViewInfo info = ui::DescribeTextView(fx.ui.fileView(id));
+        IM_CHECK(info.error.empty());
+        IM_CHECK_EQ(info.lines, (size_t)5);
+        IM_CHECK_STR_EQ(info.encoding.c_str(), "UTF-8");
+
+        // Find, case ignored: three.
+        ctx->SetRef(ImGuiTestRef(ui::FileViewWindowId(id)));
+        ctx->WindowFocus("");
+        ctx->ItemClick("**/###Find");
+        ctx->Yield(2);
+        ctx->KeyCharsAppend("fox");
+        ctx->Yield(2);
+        IM_CHECK_EQ(ui::DescribeTextView(fx.ui.fileView(id)).hits, (size_t)3);
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->Yield(2);
+        IM_CHECK_EQ(ui::DescribeTextView(fx.ui.fileView(id)).hits, (size_t)0);
+
+        // Select all and copy: the file's text, its last line break aside.
+        ctx->WindowFocus("");
+        ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_A);
+        ctx->Yield(2);
+        const std::string all = std::string(source).substr(0, std::strlen(source) - 1);
+        IM_CHECK_STR_EQ(ui::DescribeTextView(fx.ui.fileView(id)).selected.c_str(), all.c_str());
+        ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_C);
+        ctx->Yield(2);
+        IM_CHECK_STR_EQ(ImGui::GetClipboardText(), all.c_str());
+
+        // Changed on disk: the view reads it again. That is checked in real
+        // time, which the engine's frames outrun. Up to five seconds.
+        WriteFile(app::JoinPath(fx.root, "script.py"), "one\ntwo\nthree\nfour\nfive\nsix\nseven\n");
+        for (int i = 0; i < 1000 && ui::DescribeTextView(fx.ui.fileView(id)).lines != 7; ++i)
+            {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            ctx->Yield();
+            }
+        IM_CHECK_EQ(ui::DescribeTextView(fx.ui.fileView(id)).lines, (size_t)7);
+
+        // No extension: the context menu offers it, and it opens as text.
+        RefActiveView(ctx, fx);
+        ctx->ItemClick("**/###build", ImGuiMouseButton_Right);
+        ctx->Yield(2);
+        ctx->SetRef("//$FOCUSED");
+        ctx->ItemClick("View in Davesplorer");
+        ctx->Yield(4);
+        IM_CHECK_EQ(fx.state.fileViews.size(), (size_t)2);
+        IM_CHECK(fx.state.fileViews[1].kind == app::FileViewKind::Text);
+        IM_CHECK_EQ(ui::DescribeTextView(fx.ui.fileView(fx.state.fileViews[1].id)).lines, (size_t)2);
+
+        for (int n = 0; n < 2; ++n)
+            {
+            ctx->SetRef(ImGuiTestRef(ui::FileViewWindowId(fx.state.fileViews.back().id)));
+            ctx->WindowFocus("");
+            ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_W);
+            ctx->Yield(3);
+            }
+        IM_CHECK(fx.state.fileViews.empty());
     };
 
     // A PDF opens in the viewer, its pages render on the worker thread and

@@ -210,6 +210,7 @@ add_library(dsp_app STATIC
     src/app/GitRemote.cpp
     src/app/Markdown.cpp
     src/app/Pdf.cpp
+    src/app/TextFile.cpp
     src/platform/PdfEngine.cpp
     ${DSP_PLATFORM_DIR}/Strings.${DSP_PLATFORM_EXT}
     ${DSP_PLATFORM_DIR}/Paths.${DSP_PLATFORM_EXT}
@@ -246,6 +247,7 @@ add_library(dsp_ui STATIC
     src/ui/ImageView.cpp
     src/ui/PdfView.cpp
     src/ui/MarkdownView.cpp
+    src/ui/TextView.cpp
     src/ui/ProgramsView.cpp
     src/ui/Layouts.cpp
     src/ui/Textures.cpp

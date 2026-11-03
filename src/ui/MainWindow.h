@@ -48,10 +48,12 @@ void CloseFileView(app::AppState& state, UiState& ui, int id);
 void HandleViewerSplit(app::AppState& state, UiState& ui);
 // Brings the active folder view to a file: its folder, with it selected.
 void ShowInFolderView(app::AppState& state, UiState& ui, const std::string& path);
-// The bodies of a PDF's and a Markdown file's views, inside their Begin/End.
+// The bodies of a PDF's, a Markdown file's and a text file's views, inside
+// their Begin/End.
 void DrawPdfFile(app::AppState& state, UiState& ui, app::FileView& view, FileViewUi& v);
 void DrawMarkdownFile(app::AppState& state, UiState& ui, app::FileView& view, FileViewUi& v);
-// What a PDF or Markdown view holds, for the tests to check.
+void DrawTextFile(app::AppState& state, UiState& ui, app::FileView& view, FileViewUi& v);
+// What a PDF, Markdown or text view holds, for the tests to check.
 struct PdfViewInfo
 {
     int         pages = 0;
@@ -70,6 +72,15 @@ struct MarkdownViewInfo
     std::string error;
 };
 MarkdownViewInfo DescribeMarkdownView(const FileViewUi& v);
+struct TextViewInfo
+{
+    size_t      lines = 0;
+    size_t      hits = 0;
+    std::string selected;
+    std::string encoding;
+    std::string error;
+};
+TextViewInfo DescribeTextView(const FileViewUi& v);
 
 // The Programs window: every program under a folder, by project. Titled
 // after the folder, with the same stable-id scheme as the other windows.

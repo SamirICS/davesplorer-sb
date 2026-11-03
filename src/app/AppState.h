@@ -31,10 +31,11 @@ enum class FileViewKind
     Image,
     Pdf,
     Markdown,
+    Text,
 };
 
 // A file shown inside the app rather than handed to another program: an
-// image, a PDF or a Markdown file in the built-in viewer. Its own dockable
+// image, a PDF, a Markdown file or a text file in the built-in viewer. Its own dockable
 // window, like a folder view, but never the "active tab" that menus and the
 // navigation pane act on.
 struct FileView

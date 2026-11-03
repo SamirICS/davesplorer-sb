@@ -451,6 +451,10 @@ bool DrawFileView(app::AppState& state, UiState& ui, int index)
         {
         DrawMarkdownFile(state, ui, view, v);
         }
+    else if (visible && view.kind == app::FileViewKind::Text)
+        {
+        DrawTextFile(state, ui, view, v);
+        }
     else if (visible)
         {
         LoadIfNeeded(view, v);

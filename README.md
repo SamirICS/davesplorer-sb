@@ -192,6 +192,19 @@ entry is greyed out everywhere else, including KDE Plasma, Windows and macOS.
   the context menu. `davesplorer file.pdf` (or `.md`) opens the folder
   with the file shown, so Davesplorer can be the desktop's handler for
   either.
+- **Text viewer**: source code, scripts, JSON, YAML, logs and the rest
+  (`.py`, `.sh`, `.json`, `.cpp`, `.asc`, `.dbc` and about 150 other
+  extensions) open as text in the fixed-width face with line numbers. A
+  file with no extension (`Makefile`, `LICENSE`, a script) opens the same
+  way when it reads as text, and any file that reads as text, whatever
+  its extension, can be opened with "View in Davesplorer". UTF-8, UTF-16
+  with a byte-order mark and Latin-1 are read; LF, CRLF and CR line ends
+  all work. Drag to select (double-click a word, triple-click a line),
+  `Ctrl+C` copies, `Ctrl+F` finds, `Ctrl+G` goes to a line. Only the lines
+  in view are drawn, so a large log scrolls freely; files over 128 MB show
+  their first 128 MB. An edit saved elsewhere shows within a second, and a
+  view scrolled to the end stays there, so a growing log can be watched.
+  **View > Open text files in Davesplorer** turns the double-click off.
 - **Context menus** on items and on the empty area, plus "Show in Windows
   Explorer" and "Open terminal here". Each view's status bar also has New
   folder, Open terminal and Open in Windows Explorer buttons at its right

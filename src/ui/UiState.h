@@ -71,10 +71,11 @@ struct ViewUi
     std::vector<uint8_t> lassoBase;               // selection snapshot when the lasso began
 };
 
-// A PDF or Markdown file being shown: the document, its textures and how
-// it is being looked at. Defined beside the code that draws them.
+// A PDF, Markdown or text file being shown: the document, its textures and
+// how it is being looked at. Defined beside the code that draws them.
 struct PdfViewUi;
 struct MarkdownViewUi;
+struct TextViewUi;
 
 // Per-file-view interface state: the decoded image as a texture, and how
 // it is being looked at. Keyed by the file view's id.
@@ -104,6 +105,7 @@ struct FileViewUi
 
     std::shared_ptr<PdfViewUi>      pdf;        // a PDF view's, made on its first draw
     std::shared_ptr<MarkdownViewUi> markdown;   // a Markdown view's, likewise
+    std::shared_ptr<TextViewUi>     text;       // a text view's, likewise
 };
 
 // Per-Programs-window interface state, keyed by the view's id.
@@ -178,6 +180,9 @@ struct UiState
     std::string pinQueryPath;
     bool        pinQueryCanPin = false;
     bool        pinQueryPinned = false;
+    // Whether the built-in viewer shows it, which for a file with an
+    // unknown extension means reading its start; asked the same way.
+    bool        viewQueryViewable = false;
 
     // The git remotes of the folder a context menu is about, read from the
     // repository's files once as the menu opens.

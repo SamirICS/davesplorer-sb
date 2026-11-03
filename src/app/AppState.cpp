@@ -3,6 +3,7 @@
 #include "app/Listing.h"
 #include "app/Navigation.h"
 #include "app/PathUtil.h"
+#include "app/TextFile.h"
 #include "app/TreeScan.h"
 #include "platform/Clipboard.h"
 #include "platform/Strings.h"
@@ -121,11 +122,13 @@ bool ApplyStartArgument(AppState& state, const std::string& argument)
         folder = ParentPath(path);
         select = PathName(path);
         // A file the viewer shows opens in it too, beside its folder: what
-        // the desktop asks for when Davesplorer is the PDF or Markdown
-        // handler. /select only ever selects.
+        // the desktop asks for when Davesplorer is the PDF, Markdown or
+        // text handler. /select only ever selects.
         const size_t dot = select.find_last_of('.');
-        if (!selectMode && dot != std::string::npos && OpensInApp(state.settings, platform::ToLowerAscii(select.substr(dot + 1))))
-            state.viewOnStart = path;
+        const bool opensHere = dot != std::string::npos
+                                   ? OpensInApp(state.settings, platform::ToLowerAscii(select.substr(dot + 1)))
+                                   : state.settings.openTextInApp && text::FileLooksLikeText(path);
+        if (!selectMode && opensHere) state.viewOnStart = path;
         }
 
     // The pinned views stay; the argument takes the place of the rest.

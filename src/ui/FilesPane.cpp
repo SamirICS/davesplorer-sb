@@ -51,7 +51,7 @@ bool OpenEntryHere(app::AppState& state, UiState& ui, int tabIndex, int entryInd
     const app::Tab& tab = state.tabs[(size_t)tabIndex];
     if (entryIndex < 0 || entryIndex >= (int)tab.entries.size()) return false;
     const platform::FileEntry& e = tab.entries[(size_t)entryIndex];
-    if (!e.isDirectory && app::OpensInApp(state.settings, e.extension))
+    if (app::OpensInApp(state.settings, e))
         {
         OpenFileView(state, ui, e.path);
         return true;
@@ -345,8 +345,6 @@ void DrawRowContextMenu(app::AppState& state, UiState& ui, int tabIndex)
     const bool inFolder = !tab.path.empty();
     const bool haveSelection = app::SelectedCount(tab) > 0;
     const bool focusedIsFolder = tab.focused >= 0 && tab.entries[(size_t)tab.focused].isDirectory;
-    app::FileViewKind focusedKind{};
-    const bool focusedIsViewable = tab.focused >= 0 && !focusedIsFolder && app::ViewableInApp(tab.entries[(size_t)tab.focused].extension, focusedKind);
     const bool focusedIsProgram = tab.focused >= 0 && tab.entries[(size_t)tab.focused].isExecutable;
     const bool focusedIsLauncher = tab.focused >= 0 && tab.entries[(size_t)tab.focused].extension == "desktop";
     const std::string focusedPath = tab.focused >= 0 ? tab.entries[(size_t)tab.focused].path : std::string();
@@ -358,9 +356,13 @@ void DrawRowContextMenu(app::AppState& state, UiState& ui, int tabIndex)
         ui.pinQueryPath = focusedPath;
         ui.pinQueryCanPin = focusedCouldPin && platform::CanPinApplications();
         ui.pinQueryPinned = ui.pinQueryCanPin && platform::IsPinned(focusedPath);
+        app::FileViewKind kind{};
+        ui.viewQueryViewable = tab.focused >= 0 && !focusedIsFolder &&
+                               app::ViewableFileInApp(focusedPath, tab.entries[(size_t)tab.focused].extension, kind);
         }
     const bool canPin = focusedCouldPin && ui.pinQueryPath == focusedPath && ui.pinQueryCanPin;
     const bool pinned = canPin && ui.pinQueryPinned;
+    const bool focusedIsViewable = ui.pinQueryPath == focusedPath && ui.viewQueryViewable;
     if (ImGui::MenuItem("Open"))
         {
         OpenSelectedOrFocused(state, ui, tabIndex);
@@ -374,7 +376,7 @@ void DrawRowContextMenu(app::AppState& state, UiState& ui, int tabIndex)
 #ifdef __linux__
     if (ImGui::MenuItem("Show programs under here", nullptr, false, focusedIsFolder)) OpenProgramsView(state, ui, focusedPath);
 #endif
-    // The two ways to open an image, PDF or Markdown file, both always on
+    // The two ways to open an image, PDF, Markdown or text file, both always on
     // offer whatever the double-click preference says.
     if (ImGui::MenuItem("View in Davesplorer", nullptr, false, focusedIsViewable)) OpenFileView(state, ui, focusedPath);
     // A program is started, not opened: no handler is asked, and it runs in

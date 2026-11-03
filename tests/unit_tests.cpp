@@ -15,6 +15,7 @@
 #include "app/Selection.h"
 #include "app/Settings.h"
 #include "app/Shortcuts.h"
+#include "app/TextFile.h"
 #include "app/TreeScan.h"
 #include "platform/Clipboard.h"
 #include "platform/FileSystem.h"
@@ -1687,6 +1688,134 @@ void TestExpandedTree()
 }
 
 
+void TestTextFile()
+{
+    using namespace app;
+    namespace text = app::text;
+    CHECK(text::IsTextExtension("py"));
+    CHECK(text::IsTextExtension("sh"));
+    CHECK(text::IsTextExtension("json"));
+    CHECK(!text::IsTextExtension("md"));    // Markdown has its own viewer
+    CHECK(!text::IsTextExtension("png"));
+    FileViewKind kind{};
+    CHECK(ViewableInApp("py", kind) && kind == FileViewKind::Text);
+    CHECK(ViewableInApp("md", kind) && kind == FileViewKind::Markdown);
+    CHECK(OpensInApp(Settings{}, "json"));
+    Settings off;
+    off.openTextInApp = false;
+    CHECK(!OpensInApp(off, "json"));
+    CHECK(OpensInApp(off, "md"));   // documents follow their own preference
+
+    // What reads as text.
+    CHECK(text::LooksLikeText(""));
+    CHECK(text::LooksLikeText("#!/bin/sh\necho hi\r\n\tdone\n"));
+    CHECK(text::LooksLikeText("caf\xC3\xA9 na\xC3\xAFve"));
+    CHECK(text::LooksLikeText("ends mid-character \xE2\x82"));        // the 8 KB cut can land there
+    CHECK(text::LooksLikeText("Latin-1: caf\xE9 et na\xEFve, mostly ASCII"));
+    CHECK(text::LooksLikeText("\x1b[31mred\x1b[0m log line\n"));       // colour codes in a log
+    CHECK(text::LooksLikeText(std::string("\xFF\xFEh\0i\0", 6)));    // UTF-16 with its mark
+    CHECK(!text::LooksLikeText(std::string("ELF\0\x02\x01", 6)));
+    CHECK(!text::LooksLikeText("\x01\x02\x03\x04\x05\x06\x07\x08 binary"));
+
+    // Lines, whatever the file ends them with.
+    text::Document doc = text::Decode("one\ntwo\nthree\n");
+    CHECK_EQ(doc.LineCount(), (size_t)3);
+    CHECK_EQ(std::string(doc.Line(2)), "three");
+    CHECK(doc.lineEnding == text::LineEnding::LF);
+    CHECK(doc.encoding == text::Encoding::Utf8);
+    CHECK_EQ(doc.LineOf(4), (size_t)1);
+    CHECK_EQ(doc.LineOf(0), (size_t)0);
+    doc = text::Decode("a\r\nb\r\n\r\nc");
+    CHECK_EQ(doc.LineCount(), (size_t)4);
+    CHECK_EQ(std::string(doc.Line(2)), "");
+    CHECK_EQ(std::string(doc.Line(3)), "c");
+    CHECK(doc.lineEnding == text::LineEnding::CRLF);
+    CHECK(text::Decode("a\rb\nc").lineEnding == text::LineEnding::Mixed);
+    CHECK(text::Decode("old mac\rfile").lineEnding == text::LineEnding::CR);
+    doc = text::Decode("");
+    CHECK_EQ(doc.LineCount(), (size_t)1);
+    CHECK(doc.lineEnding == text::LineEnding::None);
+    // Tabs run to the next stop; the longest line counts columns.
+    CHECK_EQ(text::Decode("ab\tc\nx").longestLine, (size_t)5);
+
+    // Encodings: a BOM is dropped, UTF-16 becomes UTF-8, bytes that are
+    // not UTF-8 are Latin-1, and control characters are made visible.
+    doc = text::Decode("\xEF\xBB\xBFhi");
+    CHECK(doc.encoding == text::Encoding::Utf8Bom);
+    CHECK_EQ(doc.text, "hi");
+    doc = text::Decode(std::string("\xFF\xFEh\0\xE9\0\n\0\x3D\xD8\x00\xDE", 12));
+    CHECK(doc.encoding == text::Encoding::Utf16LE);
+    CHECK_EQ(doc.text, "h\xC3\xA9\n\xF0\x9F\x98\x80");
+    doc = text::Decode(std::string("\xFE\xFF\0o\0k", 6));
+    CHECK(doc.encoding == text::Encoding::Utf16BE);
+    CHECK_EQ(doc.text, "ok");
+    doc = text::Decode("caf\xE9");
+    CHECK(doc.encoding == text::Encoding::Latin1);
+    CHECK_EQ(doc.text, "caf\xC3\xA9");
+    CHECK_EQ(text::Decode(std::string("a\0b\x01", 4)).text, "a\xEF\xBF\xBD" "b\xEF\xBF\xBD");
+    CHECK_EQ(text::Decode("tab\tkept").text, "tab\tkept");
+    std::string cut = "ab\xE2\x82";            // a euro sign, cut short
+    text::TrimToCharacter(cut);
+    CHECK_EQ(cut, "ab");
+    cut = "ab\xE2\x82\xAC";                    // and whole
+    text::TrimToCharacter(cut);
+    CHECK_EQ(cut, "ab\xE2\x82\xAC");
+    cut = "plain";
+    text::TrimToCharacter(cut);
+    CHECK_EQ(cut, "plain");
+
+    // Find ignores ASCII case and does not overlap.
+    const std::vector<size_t> hits = text::FindAll("Fox fox FOX foxfox", "fox", 100);
+    CHECK_EQ(hits.size(), (size_t)5);
+    if (hits.size() == 5) CHECK_EQ(hits[4], (size_t)15);
+    CHECK_EQ(text::FindAll("aaaa", "aa", 100).size(), (size_t)2);
+    CHECK_EQ(text::FindAll("fox fox fox", "fox", 2).size(), (size_t)2);
+    CHECK(text::FindAll("anything", "", 100).empty());
+
+    // Files: a known extension is enough; without one, the content decides.
+    TempDir dir("text");
+    const std::string script = JoinPath(dir.path, "build");
+    const std::string blob = JoinPath(dir.path, "blob");
+    const std::string page = JoinPath(dir.path, "page.html");
+    WriteBytes(script, reinterpret_cast<const unsigned char*>("#!/bin/sh\nmake\n"), 15);
+    const unsigned char binary[] = { 0x7f, 'E', 'L', 'F', 0, 0, 1, 2 };
+    WriteBytes(blob, binary, sizeof binary);
+    WriteBytes(page, reinterpret_cast<const unsigned char*>("<html></html>"), 13);
+    CHECK(text::FileLooksLikeText(script));
+    CHECK(!text::FileLooksLikeText(blob));
+    CHECK(!text::FileLooksLikeText(dir.path));   // a folder is never read
+    CHECK(ViewableFileInApp(script, "", kind) && kind == FileViewKind::Text);
+    CHECK(!ViewableFileInApp(blob, "", kind));
+    CHECK(ViewableFileInApp(page, "html", kind) && kind == FileViewKind::Text);   // View in Davesplorer offers it
+
+    platform::FileEntry entry;
+    entry.path = script;
+    CHECK(OpensInApp(Settings{}, entry));
+    CHECK(!OpensInApp(off, entry));
+    entry.isExecutable = true;                    // a program is run, not read
+    CHECK(!OpensInApp(Settings{}, entry));
+    entry.isExecutable = false;
+    entry.path = blob;
+    CHECK(!OpensInApp(Settings{}, entry));
+    entry.path = page;
+    entry.extension = "html";                     // the browser keeps its pages
+    CHECK(!OpensInApp(Settings{}, entry));
+
+    AppState state;
+    OpenTab(state, dir.path);
+    CHECK(state.fileViews.at((size_t)OpenFileView(state, script)).kind == FileViewKind::Text);
+
+    // The preference survives a save and a load.
+    Settings saved;
+    saved.openTextInApp = false;
+    const std::string file = JoinPath(dir.path, "settings.ini");
+    std::string error;
+    CHECK(SaveSettings(file, saved, error));
+    Settings loaded;
+    LoadSettings(file, loaded);
+    CHECK(!loaded.openTextInApp);
+}
+
 void TestMarkdown()
 {
     namespace md = app::md;
@@ -1929,6 +2058,7 @@ int main()
     TestShortcuts();
     TestImage();
     TestMarkdown();
+    TestTextFile();
     TestPdf();
     TestAppState();
     TestPinsAndLayouts();

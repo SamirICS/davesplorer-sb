@@ -2,6 +2,7 @@
 #include "app/Markdown.h"
 #include "app/PathUtil.h"
 #include "app/Pdf.h"
+#include "app/TextFile.h"
 #include "platform/FileSystem.h"
 #include "platform/Shell.h"
 #include "platform/Strings.h"
@@ -144,15 +145,47 @@ bool ViewableInApp(std::string_view extension, FileViewKind& kind)
     if (IsViewableImage(extension)) kind = FileViewKind::Image;
     else if (pdf::IsPdf(extension)) kind = FileViewKind::Pdf;
     else if (md::IsMarkdown(extension)) kind = FileViewKind::Markdown;
+    else if (text::IsTextExtension(extension)) kind = FileViewKind::Text;
     else return false;
     return true;
 }
 
+bool ViewableFileInApp(const std::string& path, std::string_view extension, FileViewKind& kind)
+{
+    if (ViewableInApp(extension, kind)) return true;
+    if (!text::FileLooksLikeText(path)) return false;
+    kind = FileViewKind::Text;
+    return true;
+}
+
+namespace
+{
+
+bool PreferenceFor(const Settings& settings, FileViewKind kind)
+{
+    switch (kind)
+        {
+        case FileViewKind::Image: return settings.openImagesInApp;
+        case FileViewKind::Pdf:
+        case FileViewKind::Markdown: return settings.openDocumentsInApp;
+        case FileViewKind::Text: return settings.openTextInApp;
+        }
+    return false;
+}
+
+} // namespace
+
 bool OpensInApp(const Settings& settings, std::string_view extension)
 {
     FileViewKind kind{};
-    if (!ViewableInApp(extension, kind)) return false;
-    return kind == FileViewKind::Image ? settings.openImagesInApp : settings.openDocumentsInApp;
+    return ViewableInApp(extension, kind) && PreferenceFor(settings, kind);
+}
+
+bool OpensInApp(const Settings& settings, const platform::FileEntry& entry)
+{
+    if (entry.isDirectory) return false;
+    if (OpensInApp(settings, entry.extension)) return true;
+    return entry.extension.empty() && !entry.isExecutable && settings.openTextInApp && text::FileLooksLikeText(entry.path);
 }
 
 int FindFileView(const AppState& state, const std::string& path)
@@ -173,7 +206,7 @@ int OpenFileView(AppState& state, const std::string& path)
     const size_t dot = name.find_last_of('.');
     std::string ext = dot == std::string::npos ? std::string() : name.substr(dot + 1);
     for (char& c : ext) c = (char)std::tolower((unsigned char)c);
-    if (!ViewableInApp(ext, view.kind)) view.kind = FileViewKind::Image;
+    if (!ViewableFileInApp(path, ext, view.kind)) view.kind = FileViewKind::Image;
     state.fileViews.push_back(view);
     return (int)state.fileViews.size() - 1;
 }

@@ -52,19 +52,29 @@ bool DecodeThumbnail(const std::string& path, int maxDim, DecodedImage& out, std
 std::vector<std::string> ImageSiblings(const std::string& path);
 
 // Whether the built-in viewer shows files with this extension (images,
-// PDFs, Markdown), and as what.
+// PDFs, Markdown, text), and as what.
 bool ViewableInApp(std::string_view extension, FileViewKind& kind);
+// The same for a file whose extension says nothing: one that reads as text
+// is shown as text. Reads the start of the file when the extension is not
+// known, so it is for a deliberate request, not for every frame.
+bool ViewableFileInApp(const std::string& path, std::string_view extension, FileViewKind& kind);
 // The same, asking the preferences too: whether a double-click should open
 // it here rather than hand it to the desktop.
 bool OpensInApp(const Settings& settings, std::string_view extension);
+// For a file in a listing. A file with no extension (README, Makefile,
+// LICENSE) that is not a program is opened here when it reads as text;
+// one with an extension nothing here knows still goes to the desktop,
+// which knows the HTML pages and SVGs that are text too.
+bool OpensInApp(const Settings& settings, const platform::FileEntry& entry);
 
 // Which of the file views shows this path, or -1.
 int FindFileView(const AppState& state, const std::string& path);
 
 // Opens a file view on the path (or focuses the one already showing it via
 // the returned index, which the interface treats the same). Returns the
-// index into state.fileViews. What it shows follows the extension; a file
-// the viewer does not know is shown as an image, which reports the error.
+// index into state.fileViews. What it shows follows the extension, then
+// the content: a file that reads as text is shown as text. Anything else is
+// shown as an image, which reports the error.
 int  OpenFileView(AppState& state, const std::string& path);
 void CloseFileView(AppState& state, int index);
 

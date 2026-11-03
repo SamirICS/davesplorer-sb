@@ -385,6 +385,7 @@ void DrawMenuBar(app::AppState& state, UiState& ui)
         ImGui::MenuItem("File name extensions", nullptr, &s.showExtensions);
         ImGui::MenuItem("Open images in Davesplorer", nullptr, &s.openImagesInApp);
         ImGui::MenuItem("Open PDF and Markdown in Davesplorer", nullptr, &s.openDocumentsInApp);
+        ImGui::MenuItem("Open text files in Davesplorer", nullptr, &s.openTextInApp);
         ImGui::Separator();
         if (ImGui::BeginMenu("Sort by"))
             {
