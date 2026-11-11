@@ -112,7 +112,9 @@ void DrawColumn(app::AppState& state, UiState& ui, ImGuiWindow* self)
         {
         if (e.window == self) selfPath = e.path;
         ImGui::PushID((int)e.window->ID);
-        const std::string label = std::string(IconFor(e.kind)) + "  " + TitleOf(e.window);
+        // A Programs window's title starts with its own icon already.
+        const std::string label = e.kind == PaneKind::Programs ? TitleOf(e.window)
+                                                               : std::string(IconFor(e.kind)) + "  " + TitleOf(e.window);
         if (ImGui::Selectable(label.c_str(), e.window == self, ImGuiSelectableFlags_SpanAvailWidth) && e.window != self)
             {
             if (node) BringToFront(node, e.window);
@@ -155,7 +157,56 @@ void DrawColumn(app::AppState& state, UiState& ui, ImGuiWindow* self)
     ImGui::SameLine();
 }
 
+// The first pane (leaf node) under `node`, other than `skip`, holding a
+// folder, Programs or file view: not the navigation pane.
+ImGuiDockNode* FirstPaneWithViews(const app::AppState& state, ImGuiDockNode* node, const ImGuiDockNode* skip)
+{
+    if (node == nullptr || node == skip) return nullptr;
+    if (node->IsLeafNode())
+        {
+        for (ImGuiWindow* w : node->Windows)
+            if (Describe(state, w).kind != PaneKind::Other) return node;
+        return nullptr;
+        }
+    if (ImGuiDockNode* found = FirstPaneWithViews(state, node->ChildNodes[0], skip)) return found;
+    return FirstPaneWithViews(state, node->ChildNodes[1], skip);
+}
+
+// A view on its way into this node (a split just made, a new tab).
+bool SomethingDocksInto(const UiState& ui, ImGuiID node)
+{
+    for (const auto& [id, v] : ui.views)
+        if (v.dockHint == node) return true;
+    for (const auto& [id, v] : ui.programViews)
+        if (v.dockHint == node) return true;
+    for (const auto& [id, v] : ui.fileViews)
+        if (v.dockHint == node) return true;
+    return ui.paneNewTab.requested && ui.paneNewTab.dockId == node;
+}
+
 } // namespace
+
+void CollapseEmptyMainPane(const app::AppState& state, UiState& ui, ImGuiID dockspaceId)
+{
+    ImGuiDockNode* central = ImGui::DockBuilderGetCentralNode(dockspaceId);
+    if (central == nullptr || !central->IsLeafNode() || central->Windows.Size > 0 || central->ParentNode == nullptr ||
+        ui.viewerSplitFor >= 0 || SomethingDocksInto(ui, central->ID))
+        {
+        ui.emptyMainPaneFrames = 0;
+        return;
+        }
+    // A window closing or about to dock passes through an empty node for
+    // a frame or two; only one that stays empty is let go.
+    if (++ui.emptyMainPaneFrames < 3) return;
+    ImGuiDockNode* heir = FirstPaneWithViews(state, ImGui::DockBuilderGetNode(dockspaceId), central);
+    if (heir == nullptr) return;   // no views anywhere: the empty main pane is all there is
+    // The dockspace must keep one central node, and a removed central node
+    // would hand its flag to its parent; so the flag moves to the heir first.
+    central->SetLocalFlags(central->LocalFlags & ~ImGuiDockNodeFlags_CentralNode);
+    heir->SetLocalFlags(heir->LocalFlags | ImGuiDockNodeFlags_CentralNode);
+    ImGui::DockBuilderRemoveNode(central->ID);
+    ui.emptyMainPaneFrames = 0;
+}
 
 void PaneBeforeBegin(const app::AppState& state)
 {

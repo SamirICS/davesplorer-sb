@@ -1820,6 +1820,80 @@ void RegisterTests(ImGuiTestEngine* e)
         IM_CHECK(first->DockNode != nullptr && first->DockNode->TabBar != nullptr);
     };
 
+    // Vertical tabs: closing the Programs window in front of a pane leaves
+    // the folder view showing, not an empty pane.
+    t = IM_REGISTER_TEST(e, "explorer", "vertical_tabs_close_programs_view");
+    t->TestFunc = [](ImGuiTestContext* ctx) {
+        Fixture& fx = *g_fx;
+        GoToScratch(ctx, fx);
+        fx.state.settings.verticalTabs = true;
+        ctx->Yield(5);
+        const int viewId = fx.state.tabs[0].id;
+        ImGuiWindow* view = ViewWindow(ctx, viewId);
+        ui::OpenProgramsView(fx.state, fx.ui, fx.root);
+        ctx->Yield(5);
+        IM_CHECK_EQ(fx.state.programViews.size(), (size_t)1);
+        ImGuiWindow* programs = ctx->WindowInfo(ImGuiTestRef(ui::ProgramsWindowId(fx.state.programViews[0].id))).Window;
+        IM_CHECK(programs != nullptr && programs->DockNode == view->DockNode);
+        IM_CHECK(view->DockNode->Windows[0] == programs);
+
+        fx.ui.paneClose.push_back(programs->ID);
+        ctx->Yield(5);
+        IM_CHECK(fx.state.programViews.empty());
+        IM_CHECK(view->DockNode != nullptr);
+        IM_CHECK(view->DockNode->Windows[0] == view);
+        IM_CHECK(view->Active && !view->Hidden);   // drawn, not an empty pane
+
+        fx.state.settings.verticalTabs = false;
+        ctx->Yield(5);
+    };
+
+    // Closing the last window of the main pane, beside another pane of
+    // views, takes the pane away instead of leaving a blank area: once
+    // with the tab row, once with vertical tabs, and with a Programs window
+    // as that last window.
+    t = IM_REGISTER_TEST(e, "explorer", "closing_last_window_collapses_pane");
+    t->TestFunc = [](ImGuiTestContext* ctx) {
+        Fixture& fx = *g_fx;
+        for (int vertical = 0; vertical < 2; ++vertical)
+            {
+            GoToScratch(ctx, fx);
+            fx.state.settings.verticalTabs = vertical == 1;
+            ctx->Yield(3);
+            const int leftId = fx.state.active().id;
+            ctx->SetRef(ui::kHostWindow);
+            ctx->MenuClick("View/Split view right");
+            ctx->Yield(4);
+            IM_CHECK_EQ(fx.state.tabs.size(), (size_t)2);
+            const int rightId = fx.state.tabs[1].id;
+            ImGuiWindow* leftWin = ViewWindow(ctx, leftId);
+            ImGuiWindow* rightWin = ViewWindow(ctx, rightId);
+            IM_CHECK(leftWin->DockNode != rightWin->DockNode);
+
+            // The main pane ends up holding only a Programs window.
+            fx.ui.view(leftId).wantFocus = true;
+            ctx->Yield(2);
+            ui::OpenProgramsView(fx.state, fx.ui, fx.root);
+            ctx->Yield(4);
+            ImGuiWindow* programs = ctx->WindowInfo(ImGuiTestRef(ui::ProgramsWindowId(fx.state.programViews[0].id))).Window;
+            IM_CHECK(programs->DockNode == leftWin->DockNode);
+            fx.ui.paneClose.push_back(leftWin->ID);
+            ctx->Yield(4);
+            IM_CHECK_EQ(fx.state.tabs.size(), (size_t)1);
+            fx.ui.paneClose.push_back(programs->ID);
+            ctx->Yield(6);
+
+            // One pane left, the right view's, filling the space.
+            ImGuiDockNode* central = ImGui::DockBuilderGetCentralNode(fx.ui.dockspaceId);
+            IM_CHECK(central != nullptr);
+            IM_CHECK(central->Windows.Size > 0);
+            IM_CHECK(rightWin->DockNode == central);
+            IM_CHECK(rightWin->Active && !rightWin->Hidden);
+            }
+        fx.state.settings.verticalTabs = false;
+        ctx->Yield(3);
+    };
+
     // Double-click asks; Extract here unpacks beside the archive.
     t = IM_REGISTER_TEST(e, "explorer", "extract_archive_double_click_asks");
     t->TestFunc = [](ImGuiTestContext* ctx) {

@@ -253,6 +253,7 @@ struct UiState
         } paneMove;
     std::vector<ImGuiID>        paneClose;          // window ids
     std::unordered_set<ImGuiID> paneFrontPending;   // windows to put in front once docked
+    int                         emptyMainPaneFrames = 0;   // how long the main pane has held nothing
 
     // The Settings window, and its folder-name field: edited here and
     // only copied to the setting while it is a valid name.

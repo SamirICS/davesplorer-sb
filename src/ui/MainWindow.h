@@ -138,6 +138,11 @@ void PaneBeforeBegin(const app::AppState& state);
 bool PaneAfterBegin(app::AppState& state, UiState& ui, bool visible, bool wantFront);
 void PaneEnd(bool body);
 void HandlePaneRequests(app::AppState& state, UiState& ui);
+// ImGui never removes the dockspace's central node, so the main pane would
+// stay as a blank area once its last window closed. When it stays empty
+// while another pane holds views, that pane becomes the main one and the
+// empty one goes. DockBuilder work: before DockSpace() in the frame.
+void CollapseEmptyMainPane(const app::AppState& state, UiState& ui, ImGuiID dockspaceId);
 
 // The Settings menu on the menu bar, and the window "All settings..."
 // opens.

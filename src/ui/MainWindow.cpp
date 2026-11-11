@@ -565,6 +565,7 @@ void DrawFrame(app::AppState& state, UiState& ui)
     HandleLayoutRequests(state, ui, viewport->WorkSize);
     HandleSplitRequest(state, ui);
     HandleViewerSplit(state, ui);
+    CollapseEmptyMainPane(state, ui, dockspaceId);
     ImGui::DockSpace(dockspaceId, ImVec2(0, 0), ImGuiDockNodeFlags_None);
     // The central node is where views go by default; it moves around as
     // the user splits, so look it up each frame.
