@@ -33,6 +33,7 @@ bool UndoItemBack(UndoKind kind, const UndoItem& item, std::string& error)
         {
         case UndoKind::Create:
         case UndoKind::Copy:
+        case UndoKind::Extract:
             if (!platform::PathExists(item.to)) return true;   // already gone: nothing to take back
             if (kind == UndoKind::Create && !StillEmpty(item.to))
                 {
@@ -93,6 +94,9 @@ std::string UndoQuestion(const AppState& state, const UndoEntry& entry)
         case UndoKind::Copy:
             return "Move " + (n == 1 ? "the copy " + Quoted(first.to) : "the " + std::to_string(n) + " copies") +
                    " in " + LocationTitle(state, ParentPath(first.to)) + " to the Recycle Bin?";
+        case UndoKind::Extract:
+            return "Move " + (n == 1 ? Quoted(first.to) : "the " + std::to_string(n) + " items") + " extracted from " +
+                   Quoted(first.from) + " to the Recycle Bin?";
         case UndoKind::Trash:
             return "Restore " + (n == 1 ? Quoted(first.from) : these) + " from the Recycle Bin?";
         }

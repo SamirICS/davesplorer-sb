@@ -386,6 +386,15 @@ void DrawMenuBar(app::AppState& state, UiState& ui)
         ImGui::MenuItem("Open images in Davesplorer", nullptr, &s.openImagesInApp);
         ImGui::MenuItem("Open PDF and Markdown in Davesplorer", nullptr, &s.openDocumentsInApp);
         ImGui::MenuItem("Open text files in Davesplorer", nullptr, &s.openTextInApp);
+#ifdef __linux__
+        if (ImGui::BeginMenu("Double-click on an archive"))
+            {
+            const char* names[] = { "Ask", "Extract here", "Extract to its own folder", "Open with default program" };
+            for (int i = 0; i < 4; ++i)
+                if (ImGui::MenuItem(names[i], nullptr, (int)s.archiveDoubleClick == i)) s.archiveDoubleClick = (app::ArchiveDoubleClick)i;
+            ImGui::EndMenu();
+            }
+#endif
         ImGui::Separator();
         if (ImGui::BeginMenu("Sort by"))
             {
@@ -525,6 +534,7 @@ void DrawFrame(app::AppState& state, UiState& ui)
     thumbnails::Pump();
     textures::Pump();
     BeginDragDropFrame(state, ui);
+    TickExtract(state, ui);
 
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(viewport->WorkPos);

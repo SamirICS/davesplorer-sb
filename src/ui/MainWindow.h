@@ -113,6 +113,23 @@ void StartPaste(app::AppState& state, UiState& ui, app::Tab& tab);
 void StartUndo(app::AppState& state, UiState& ui, size_t index);
 // Edit > Undo and the history beneath it, for the menu bar and context menu.
 void DrawUndoMenuItems(app::AppState& state, UiState& ui);
+
+// Extracting archives. Choose asks for the folder first.
+enum class ExtractTarget
+{
+    Here,
+    OwnFolder,
+    Choose,
+};
+void StartExtract(UiState& ui, const std::vector<std::string>& archives, ExtractTarget target);
+// 'Extract to "name/"', or its wording for several archives.
+std::string ExtractToFolderLabel(const std::vector<std::string>& archives);
+// Once a frame: starts what the folder dialog chose, and records what
+// finished.
+void TickExtract(app::AppState& state, UiState& ui);
+// The double-click question and the extraction window, with the dialogs.
+void DrawExtractDialogs(app::AppState& state, UiState& ui);
+
 void ZoomBy(app::AppState& state, float delta);
 void ZoomReset(app::AppState& state);
 

@@ -25,6 +25,7 @@ constexpr const char* kRenameTitle    = "Rename";
 constexpr const char* kDeleteTitle    = "Delete";
 constexpr const char* kMoveTitle      = "Move";
 constexpr const char* kUndoTitle      = "Undo";
+constexpr const char* kExtractTitle   = "Extract";
 // Not "Davesplorer": that is the host window's name, and two windows cannot
 // share one.
 constexpr const char* kErrorTitle     = "Error";
@@ -40,6 +41,7 @@ const char* TitleFor(Dialog d)
         case Dialog::Delete:    return kDeleteTitle;
         case Dialog::Move:      return kMoveTitle;
         case Dialog::Undo:      return kUndoTitle;
+        case Dialog::ExtractChoice: return kExtractTitle;
         case Dialog::Error:     return kErrorTitle;
         case Dialog::None:      break;
         }
@@ -239,6 +241,8 @@ void DrawDialogs(app::AppState& state, UiState& ui)
         if (ImGui::Button("OK", ImVec2(100, 0)) || EscapePressed() || EnterPressed()) ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
         }
+
+    DrawExtractDialogs(state, ui);
 
     // A ShowError raised while another modal was closing this frame is
     // opened on the next pass through here.

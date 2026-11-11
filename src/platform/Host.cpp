@@ -4,6 +4,7 @@
 #include "platform/Strings.h"
 
 #include "app/AppState.h"
+#include "app/Extract.h"
 #include "app/TreeScan.h"
 #include "ui/Fonts.h"
 #include "ui/MainWindow.h"
@@ -77,13 +78,19 @@ void SDLCALL OnLayoutDialog(void* userdata, const char* const* files, int)
     else if (files[0]) g_layoutDialog.path = files[0];
 }
 
-void ShowLayoutDialog(SDL_Window* window, ui::FileDialog kind, const app::AppState& state)
+void ShowLayoutDialog(SDL_Window* window, ui::FileDialog kind, const app::AppState& state, const std::string& archiveDir)
 {
     static const SDL_DialogFileFilter filters[] = { { "Davesplorer layouts", app::kLayoutExtension } };
     // Layouts are suggested a home of their own beside the settings.
     std::error_code ec;
     std::filesystem::create_directories(std::filesystem::path(reinterpret_cast<const char8_t*>(state.layoutsDir.c_str())), ec);
     void* tag = (void*)(intptr_t)kind;
+    if (kind == ui::FileDialog::ExtractDest)
+        {
+        // Suggests the folder the (first) archive sits in.
+        SDL_ShowOpenFolderDialog(OnLayoutDialog, tag, window, archiveDir.empty() ? nullptr : archiveDir.c_str(), false);
+        return;
+        }
     if (kind == ui::FileDialog::OpenLayout)
         {
         SDL_ShowOpenFileDialog(OnLayoutDialog, tag, window, filters, 1, state.layoutsDir.c_str(), false);
@@ -108,6 +115,12 @@ void PumpLayoutDialog(ui::UiState& ui)
     if (!g_layoutDialog.error.empty())
         {
         ui::ShowError(ui, "Could not show the file dialog: " + g_layoutDialog.error);
+        return;
+        }
+    if (g_layoutDialog.kind == ui::FileDialog::ExtractDest)
+        {
+        if (path.empty()) ui.extractArchives.clear();   // cancelled
+        else ui.extractDestChosen = path;
         return;
         }
     if (path.empty()) return;   // cancelled
@@ -306,7 +319,8 @@ int RunApplication(int argc, char** argv)
             if (!uiState.fileDialogOpen)
                 {
                 uiState.fileDialogOpen = true;
-                ShowLayoutDialog(window, uiState.fileDialogRequest, state);
+                ShowLayoutDialog(window, uiState.fileDialogRequest, state,
+                                 uiState.extractArchives.empty() ? std::string() : app::ParentPath(uiState.extractArchives[0]));
                 }
             uiState.fileDialogRequest = ui::FileDialog::None;
             }
@@ -339,6 +353,7 @@ int RunApplication(int argc, char** argv)
 
     app::treescan::Shutdown();           // joins the folder-walking thread
     app::programscan::Shutdown();        // and the program-finding one
+    app::extractjob::Shutdown();         // and the archive one, cancelling what it was unpacking
     ui::thumbnails::Shutdown();          // joins the decoder thread first
     ImGui_ImplSDLRenderer3_Shutdown();   // destroys the GPU side of every texture, ours included
     ui::textures::ReleaseAll();

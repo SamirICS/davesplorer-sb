@@ -13,8 +13,11 @@ On Debian/Ubuntu, install the build dependencies if they are missing:
 sudo apt install build-essential cmake ninja-build git pkg-config libglib2.0-dev \
   libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev \
   libxss-dev libxtst-dev libwayland-dev libxkbcommon-dev libdecor-0-dev \
-  libegl1-mesa-dev libgl1-mesa-dev wayland-protocols
+  libegl1-mesa-dev libgl1-mesa-dev wayland-protocols libarchive-dev
 ```
+
+`sudo apt install 7zip` is optional: with it, archives libarchive cannot open
+(encrypted 7z and RAR, WIM, DMG, MSI, SquashFS...) extract too.
 
 Use CMake 3.24+ and a compiler supporting C++20. The first configure downloads
 SDL3, Dear ImGui, the test engine, md4c and the PDFium prebuilt (checked
@@ -205,6 +208,20 @@ entry is greyed out everywhere else, including KDE Plasma, Windows and macOS.
   their first 128 MB. An edit saved elsewhere shows within a second, and a
   view scrolled to the end stays there, so a growing log can be watched.
   **View > Open text files in Davesplorer** turns the double-click off.
+- **Extract archives** (Linux): right-click an archive for "Extract here",
+  "Extract to "name/"" or "Extract to..." (a folder of your choosing);
+  double-click asks which, or opens it with its program, until told what
+  to do every time (**View > Double-click on an archive**). ZIP (with a
+  passphrase too), 7z, RAR, tar and its .gz/.bz2/.xz/.zst/.lz4 forms, a bare
+  .gz/.xz/.zst file, ISO, CAB, CPIO, DEB and RPM are read by libarchive in
+  the app; 7-Zip, when installed, takes the rest. An archive holding one
+  folder is not nested in a second one. Everything is unpacked into a
+  hidden folder first and moved into place at the end, so Cancel, a wrong
+  passphrase or a damaged archive leaves nothing half-done; names already
+  taken ask Replace (to the trash), Skip or Keep both. Nothing is written
+  outside the destination: `..`, absolute paths and paths through links
+  are skipped and reported. Edit > Undo sends what was unpacked to the
+  trash.
 - **Context menus** on items and on the empty area, plus "Show in Windows
   Explorer" and "Open terminal here". Each view's status bar also has New
   folder, Open terminal and Open in Windows Explorer buttons at its right

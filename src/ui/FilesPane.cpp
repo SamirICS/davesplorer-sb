@@ -8,6 +8,7 @@
 #include "ui/Theme.h"
 #include "ui/Widgets.h"
 
+#include "app/Extract.h"
 #include "app/FileOps.h"
 #include "app/Format.h"
 #include "app/Image.h"
@@ -56,6 +57,26 @@ bool OpenEntryHere(app::AppState& state, UiState& ui, int tabIndex, int entryInd
         OpenFileView(state, ui, e.path);
         return true;
         }
+#ifdef __linux__
+    if (!e.isDirectory && app::IsArchiveName(e.name))
+        switch (state.settings.archiveDoubleClick)
+            {
+            case app::ArchiveDoubleClick::Ask:
+                // Enter on several archives asks once about all of them.
+                if (!(ui.dialogRequested && ui.dialog == Dialog::ExtractChoice)) ui.extractArchives.clear();
+                ui.extractArchives.push_back(e.path);
+                RequestDialog(ui, Dialog::ExtractChoice);
+                return true;
+            case app::ArchiveDoubleClick::ExtractHere:
+                StartExtract(ui, { e.path }, ExtractTarget::Here);
+                return true;
+            case app::ArchiveDoubleClick::ExtractToFolder:
+                StartExtract(ui, { e.path }, ExtractTarget::OwnFolder);
+                return true;
+            case app::ArchiveDoubleClick::Open:
+                break;
+            }
+#endif
     return app::OpenEntry(state, state.tabs[(size_t)tabIndex], entryIndex, error);
 }
 
@@ -379,6 +400,27 @@ void DrawRowContextMenu(app::AppState& state, UiState& ui, int tabIndex)
     // The two ways to open an image, PDF, Markdown or text file, both always on
     // offer whatever the double-click preference says.
     if (ImGui::MenuItem("View in Davesplorer", nullptr, false, focusedIsViewable)) OpenFileView(state, ui, focusedPath);
+#ifdef __linux__
+    // Offered when everything selected is an archive, and then for all of
+    // them at once.
+    std::vector<std::string> archives;
+    for (int i : app::SelectedIndices(tab))
+        {
+        const platform::FileEntry& e = tab.entries[(size_t)i];
+        if (e.isDirectory || !app::IsArchiveName(e.name))
+            {
+            archives.clear();
+            break;
+            }
+        archives.push_back(e.path);
+        }
+    if (!archives.empty())
+        {
+        if (ImGui::MenuItem("Extract here")) StartExtract(ui, archives, ExtractTarget::Here);
+        if (ImGui::MenuItem((ExtractToFolderLabel(archives) + "###extractown").c_str())) StartExtract(ui, archives, ExtractTarget::OwnFolder);
+        if (ImGui::MenuItem("Extract to...", nullptr, false, !ui.fileDialogOpen)) StartExtract(ui, archives, ExtractTarget::Choose);
+        }
+#endif
     // A program is started, not opened: no handler is asked, and it runs in
     // the folder it lives in.
     if (ImGui::MenuItem("Run", nullptr, false, focusedIsProgram))

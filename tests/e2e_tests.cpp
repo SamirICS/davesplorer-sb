@@ -9,6 +9,7 @@
 #include "app/Navigation.h"
 #include "app/PathUtil.h"
 #include "app/Selection.h"
+#include "app/Extract.h"
 #include "app/FileOps.h"
 #include "app/Layout.h"
 #include "app/Shortcuts.h"
@@ -25,6 +26,7 @@
 #include "ui/Thumbnails.h"
 #include "ui/UiState.h"
 
+#include "TestArchive.h"
 #include "TestPdf.h"
 
 #include "imgui.h"
@@ -1738,6 +1740,77 @@ void RegisterTests(ImGuiTestEngine* e)
         ctx->Yield(2);
     };
 
+#ifdef __linux__
+    // Extracting: the menu offers it for archives only, and Extract to
+    // "name/" unpacks in the background into a folder, recorded for Undo.
+    t = IM_REGISTER_TEST(e, "explorer", "extract_archive_from_context_menu");
+    t->TestFunc = [](ImGuiTestContext* ctx) {
+        Fixture& fx = *g_fx;
+        GoToScratch(ctx, fx);
+        IM_CHECK(testarchive::Write(app::JoinPath(fx.root, "bundle.zip"), "zip", nullptr,
+                                    { { "one.txt", "1" }, { "two.txt", "2" } }));
+        app::Refresh(fx.state.active());
+        ctx->Yield(3);
+
+        RefActiveView(ctx, fx);
+        ctx->ItemClick("**/###alpha.txt", ImGuiMouseButton_Right);
+        ctx->Yield(2);
+        ctx->SetRef("//$FOCUSED");
+        IM_CHECK(!ctx->ItemExists("Extract here"));
+        ctx->PopupCloseAll();
+        ctx->Yield(2);
+
+        RefActiveView(ctx, fx);
+        ctx->ItemClick("**/###bundle.zip", ImGuiMouseButton_Right);
+        ctx->Yield(2);
+        ctx->SetRef("//$FOCUSED");
+        IM_CHECK(ctx->ItemExists("Extract here"));
+        IM_CHECK(ctx->ItemExists("Extract to..."));
+        IM_CHECK_STR_EQ(ui::ExtractToFolderLabel({ "bundle.zip" }).c_str(), "Extract to \"bundle/\"");
+        ctx->ItemClick("###extractown");
+        const std::string unpacked = app::JoinPath(fx.root, "bundle/two.txt");
+        for (int i = 0; i < 300 && !(platform::PathExists(unpacked) && fx.state.undoHistory.size() == 1); ++i)
+            {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            ctx->Yield();
+            }
+        IM_CHECK(platform::PathExists(unpacked));
+        IM_CHECK_EQ(fx.state.undoHistory.size(), (size_t)1);
+        IM_CHECK(fx.state.undoHistory.back().kind == app::UndoKind::Extract);
+        ctx->Yield(3);
+        IM_CHECK(ImGui::GetTopMostPopupModal() == nullptr);   // the progress window has gone, and no error came up
+        IM_CHECK(fx.ui.dialogMessage.empty());
+    };
+
+    // Double-click asks; Extract here unpacks beside the archive.
+    t = IM_REGISTER_TEST(e, "explorer", "extract_archive_double_click_asks");
+    t->TestFunc = [](ImGuiTestContext* ctx) {
+        Fixture& fx = *g_fx;
+        GoToScratch(ctx, fx);
+        fx.state.settings.archiveDoubleClick = app::ArchiveDoubleClick::Ask;
+        IM_CHECK(testarchive::Write(app::JoinPath(fx.root, "pack.tar.gz"), "gnutar", "gzip", { { "inner.txt", "in" } }));
+        app::Refresh(fx.state.active());
+        ctx->Yield(3);
+
+        RefActiveView(ctx, fx);
+        ctx->ItemDoubleClick("**/###pack.tar.gz");
+        ctx->Yield(2);
+        IM_CHECK(fx.ui.dialog == ui::Dialog::ExtractChoice);
+        ctx->SetRef("//Extract");
+        ctx->ItemClick("Extract here");
+        const std::string unpacked = app::JoinPath(fx.root, "inner.txt");
+        for (int i = 0; i < 300 && !(platform::PathExists(unpacked) && fx.state.undoHistory.size() == 1); ++i)
+            {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            ctx->Yield();
+            }
+        IM_CHECK(platform::PathExists(unpacked));
+        IM_CHECK(fx.state.settings.archiveDoubleClick == app::ArchiveDoubleClick::Ask);   // not remembered unless asked
+        ctx->Yield(3);
+        IM_CHECK(ImGui::GetTopMostPopupModal() == nullptr);
+    };
+#endif
+
     t = IM_REGISTER_TEST(e, "explorer", "thumbnails_view_grid");
     t->TestFunc = [](ImGuiTestContext* ctx) {
         Fixture& fx = *g_fx;
@@ -1986,6 +2059,7 @@ int main(int argc, char** argv)
 
     app::treescan::Shutdown();
     app::programscan::Shutdown();
+    app::extractjob::Shutdown();
     ui::thumbnails::Shutdown();
     ui::textures::ReleaseAll();
     ImGuiTestEngine_Stop(engine);

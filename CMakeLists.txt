@@ -187,6 +187,9 @@ else()
     set(DSP_PLATFORM_EXT cpp)
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(GIO REQUIRED IMPORTED_TARGET gio-2.0)
+    # Archives are unpacked in-process; 7-Zip, when installed, is only ever
+    # run as a separate program.
+    pkg_check_modules(LIBARCHIVE REQUIRED IMPORTED_TARGET libarchive)
     # The drag sources talk to the display server directly; SDL loads the
     # same libraries at run time, so both share one connection's state.
     pkg_check_modules(DSP_DISPLAY REQUIRED IMPORTED_TARGET x11 xi wayland-client)
@@ -211,6 +214,7 @@ add_library(dsp_app STATIC
     src/app/Markdown.cpp
     src/app/Pdf.cpp
     src/app/TextFile.cpp
+    src/app/Extract.cpp
     src/platform/PdfEngine.cpp
     ${DSP_PLATFORM_DIR}/Strings.${DSP_PLATFORM_EXT}
     ${DSP_PLATFORM_DIR}/Paths.${DSP_PLATFORM_EXT}
@@ -222,15 +226,18 @@ target_include_directories(dsp_app PUBLIC src)
 target_link_libraries(dsp_app PUBLIC dsp_strict stb_image md4c pdfium)
 target_compile_definitions(dsp_app PRIVATE DSP_PDFIUM_VERSION="${DSP_PDFIUM_VERSION}")
 if(WIN32)
+    target_sources(dsp_app PRIVATE src/platform/ArchiveUnsupported.cpp)
     target_link_libraries(dsp_app PUBLIC shell32 ole32 shlwapi gdi32)
 elseif(APPLE)
+    target_sources(dsp_app PRIVATE src/platform/ArchiveUnsupported.cpp)
     target_link_libraries(dsp_app PUBLIC SDL3::SDL3-static
         "-framework Foundation" "-framework AppKit" "-framework UniformTypeIdentifiers"
         "-framework QuickLookThumbnailing")
     target_compile_options(dsp_strict INTERFACE -Wall -Wextra -Wpedantic -Werror)
 else()
-    target_sources(dsp_app PRIVATE src/platform/linux/DragOutX11.cpp src/platform/linux/DragOutWayland.cpp)
-    target_link_libraries(dsp_app PUBLIC PkgConfig::GIO PkgConfig::DSP_DISPLAY SDL3::SDL3-static)
+    target_sources(dsp_app PRIVATE src/platform/linux/DragOutX11.cpp src/platform/linux/DragOutWayland.cpp
+        src/platform/linux/Archive.cpp)
+    target_link_libraries(dsp_app PUBLIC PkgConfig::GIO PkgConfig::DSP_DISPLAY PkgConfig::LIBARCHIVE SDL3::SDL3-static)
     target_compile_options(dsp_strict INTERFACE -Wall -Wextra -Wpedantic -Werror)
 endif()
 
@@ -249,6 +256,7 @@ add_library(dsp_ui STATIC
     src/ui/MarkdownView.cpp
     src/ui/TextView.cpp
     src/ui/ProgramsView.cpp
+    src/ui/ExtractUi.cpp
     src/ui/Layouts.cpp
     src/ui/Textures.cpp
     src/ui/Thumbnails.cpp

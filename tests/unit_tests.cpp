@@ -2,6 +2,7 @@
 // Exit code is the number of failed checks.
 
 #include "app/AppState.h"
+#include "app/Extract.h"
 #include "app/FileOps.h"
 #include "app/Format.h"
 #include "app/GitRemote.h"
@@ -23,6 +24,7 @@
 #include "platform/Shell.h"
 #include "platform/Strings.h"
 
+#include "TestArchive.h"
 #include "TestPdf.h"
 
 #ifdef _WIN32
@@ -646,6 +648,7 @@ void TestSettings()
     s.showHidden = true;
     s.startPath = "C:\\Users";
     s.windowWidth = 1000;
+    s.archiveDoubleClick = app::ArchiveDoubleClick::ExtractToFolder;
 
     app::Settings back;
     const std::string text = app::SerializeSettings(s);
@@ -663,6 +666,7 @@ void TestSettings()
     CHECK(back.showHidden);
     CHECK_EQ(back.startPath, "C:\\Users");
     CHECK_EQ(back.windowWidth, 1000);
+    CHECK(back.archiveDoubleClick == app::ArchiveDoubleClick::ExtractToFolder);
 
     // Garbage in the file must not produce an unusable interface.
     app::ApplySettingLine(back, "ui_scale", "0");
@@ -671,6 +675,8 @@ void TestSettings()
     CHECK_EQ(back.uiScale, 1.0f);
     app::ApplySettingLine(back, "window_width", "10");
     CHECK_EQ(back.windowWidth, 400);
+    app::ApplySettingLine(back, "archive_double_click", "9");
+    CHECK(back.archiveDoubleClick == app::ArchiveDoubleClick::Ask);
 }
 
 void TestNavigationAndListing()
@@ -2033,6 +2039,315 @@ void TestPdf()
 }
 } // namespace
 
+#ifdef __linux__
+// Extracting archives, against the real disk. The archives are written by
+// libarchive on the spot; 7-Zip's part runs only where 7-Zip is installed.
+void TestExtract()
+{
+    // Which names are offered, and the folder each unpacks into.
+    CHECK(app::IsArchiveName("a.zip"));
+    CHECK(app::IsArchiveName("A.ZIP"));
+    CHECK(app::IsArchiveName("src.tar.gz"));
+    CHECK(app::IsArchiveName("x.7z"));
+    CHECK(app::IsArchiveName("x.rar"));
+    CHECK(app::IsArchiveName("notes.txt.gz"));
+    CHECK(app::IsArchiveName("disk.iso"));
+    CHECK(!app::IsArchiveName("report.docx"));
+    CHECK(!app::IsArchiveName("libfoo.a"));
+    CHECK(!app::IsArchiveName("zip"));
+    CHECK(!app::IsArchiveName(".zip"));
+    CHECK(!app::IsArchiveName("folder"));
+    CHECK_EQ(app::ArchiveStem("photos.tar.gz"), std::string("photos"));
+    CHECK_EQ(app::ArchiveStem("Photos.TGZ"), std::string("Photos"));
+    CHECK_EQ(app::ArchiveStem("notes.zip"), std::string("notes"));
+    CHECK_EQ(app::ArchiveStem("v1.2.zip"), std::string("v1.2"));
+    CHECK_EQ(app::ArchiveStem("plain"), std::string("plain"));
+
+    TempDir tmp("extract");
+    namespace fs = std::filesystem;
+    auto at = [&](const std::string& rel) { return app::JoinPath(tmp.path, rel); };
+    auto read = [&](const std::string& rel) { return ReadAll(fs::path(at(rel))); };
+    auto stagingLeft = [&](const std::string& dir) {
+        std::error_code ec;
+        for (const fs::directory_entry& e : fs::directory_iterator(dir, ec))
+            if (e.path().filename().string().rfind(".davesplorer-extract-", 0) == 0) return true;
+        return false;
+    };
+    const std::atomic<bool> noCancel{ false };
+    app::ExtractQuestions none;
+
+    // A zip with several things at the top unpacks into a folder named
+    // after it, and again into "name (2)".
+    const std::string zip = at("bundle.zip");
+    CHECK(testarchive::Write(zip, "zip", nullptr, {
+        { "a.txt", "alpha" }, { "docs", "", 'd' }, { "docs/b.txt", "bravo" }, { "./c.txt", "charlie" } }));
+    app::ExtractOutcome out = app::ExtractNow({ zip, tmp.path, true }, none, noCancel);
+    CHECK(out.ok);
+    CHECK(out.error.empty());
+    CHECK_EQ(out.placed.size(), (size_t)1);
+    CHECK_EQ(read("bundle/a.txt"), std::string("alpha"));
+    CHECK_EQ(read("bundle/docs/b.txt"), std::string("bravo"));
+    CHECK_EQ(read("bundle/c.txt"), std::string("charlie"));
+    out = app::ExtractNow({ zip, tmp.path, true }, none, noCancel);
+    CHECK(out.ok);
+    CHECK_EQ(read("bundle (2)/a.txt"), std::string("alpha"));
+    CHECK(!stagingLeft(tmp.path));
+
+    // One folder and nothing else is not nested twice.
+    const std::string tgz = at("release.tar.gz");
+    CHECK(testarchive::Write(tgz, "gnutar", "gzip", { { "proj/", "", 'd' }, { "proj/main.c", "int main;" }, { "proj/sub/x", "x" } }));
+    out = app::ExtractNow({ tgz, tmp.path, true }, none, noCancel);
+    CHECK(out.ok);
+    CHECK_EQ(read("proj/main.c"), std::string("int main;"));
+    CHECK_EQ(read("proj/sub/x"), std::string("x"));
+    CHECK(!platform::PathExists(at("release")));
+    out = app::ExtractNow({ tgz, tmp.path, true }, none, noCancel);
+    CHECK(out.ok);
+    CHECK_EQ(read("proj (2)/main.c"), std::string("int main;"));
+
+    // 7z, beside the archive.
+    const std::string here = tmp.dir("here");
+    const std::string sevenZ = app::JoinPath(here, "pack.7z");
+    CHECK(testarchive::Write(sevenZ, "7zip", nullptr, { { "seven.txt", "seven" }, { "deep/er.txt", "er" } }));
+    out = app::ExtractNow({ sevenZ, here, false }, none, noCancel);
+    CHECK(out.ok);
+    CHECK_EQ(read("here/seven.txt"), std::string("seven"));
+    CHECK_EQ(read("here/deep/er.txt"), std::string("er"));
+
+    // A bare .gz holds one file, named after the archive.
+    const std::string gz = app::JoinPath(here, "notes.txt.gz");
+    CHECK(testarchive::Write(gz, "raw", "gzip", { { "data", "just notes" } }));
+    out = app::ExtractNow({ gz, here, false }, none, noCancel);
+    CHECK(out.ok);
+    CHECK_EQ(read("here/notes.txt"), std::string("just notes"));
+
+    // Names already taken: asked once, with the names, and each answer
+    // does what it says.
+    const std::string clash = tmp.dir("clash");
+    const std::string clashZip = app::JoinPath(clash, "c.zip");
+    CHECK(testarchive::Write(clashZip, "zip", nullptr, { { "a.txt", "new" }, { "fresh.txt", "fresh" } }));
+    tmp.file("clash/a.txt", "old");
+    std::vector<std::string> askedAbout;
+    auto answer = [&](app::ConflictChoice c) {
+        app::ExtractQuestions q;
+        q.conflict = [&askedAbout, c](const std::vector<std::string>& names) { askedAbout = names; return c; };
+        return q;
+    };
+    out = app::ExtractNow({ clashZip, clash, false }, answer(app::ConflictChoice::Cancel), noCancel);
+    CHECK(out.cancelled);
+    CHECK_EQ(askedAbout.size(), (size_t)1);
+    CHECK_EQ(askedAbout[0], std::string("a.txt"));
+    CHECK(!platform::PathExists(at("clash/fresh.txt")));
+    CHECK(!stagingLeft(clash));
+    out = app::ExtractNow({ clashZip, clash, false }, answer(app::ConflictChoice::Skip), noCancel);
+    CHECK(out.ok);
+    CHECK_EQ(read("clash/a.txt"), std::string("old"));
+    CHECK_EQ(read("clash/fresh.txt"), std::string("fresh"));
+    std::string error;
+    CHECK(platform::DeletePermanently({ at("clash/fresh.txt") }, error));
+    out = app::ExtractNow({ clashZip, clash, false }, answer(app::ConflictChoice::KeepBoth), noCancel);
+    CHECK(out.ok);
+    CHECK_EQ(read("clash/a.txt"), std::string("old"));
+    CHECK_EQ(read("clash/a (2).txt"), std::string("new"));
+    out = app::ExtractNow({ clashZip, clash, false }, answer(app::ConflictChoice::Replace), noCancel);
+    CHECK(out.ok);
+    CHECK_EQ(read("clash/a.txt"), std::string("new"));
+    CHECK_EQ(out.replaced.size(), (size_t)2);   // a.txt and fresh.txt, both there from before
+    CHECK(!stagingLeft(clash));
+
+    // A passphrase: asked for, a wrong one asked for again, the right one
+    // unpacks. Saying no leaves nothing behind.
+    const std::string locked = tmp.dir("locked");
+    const std::string secret = app::JoinPath(locked, "secret.zip");
+    CHECK(testarchive::Write(secret, "zip", nullptr, { { "s.txt", "classified" } }, "hunter2"));
+    std::vector<bool> wrongs;
+    app::ExtractQuestions pq;
+    pq.passphrase = [&](bool wrong, std::string& p) {
+        wrongs.push_back(wrong);
+        p = wrongs.size() == 1 ? "nope" : "hunter2";
+        return true;
+    };
+    out = app::ExtractNow({ secret, locked, false }, pq, noCancel);
+    CHECK(out.ok);
+    CHECK_EQ(read("locked/s.txt"), std::string("classified"));
+    CHECK_EQ(wrongs.size(), (size_t)2);
+    if (wrongs.size() == 2) CHECK(!wrongs[0] && wrongs[1]);
+    CHECK(platform::DeletePermanently({ at("locked/s.txt") }, error));
+    pq.passphrase = [](bool, std::string&) { return false; };
+    out = app::ExtractNow({ secret, locked, false }, pq, noCancel);
+    CHECK(out.cancelled);
+    CHECK(!platform::PathExists(at("locked/s.txt")));
+    CHECK(!stagingLeft(locked));
+
+    // Nothing lands outside the destination: not "..", not an absolute
+    // path, not a file written through a link pointing out.
+    const std::string jail = tmp.dir("jail");
+    const std::string evil = app::JoinPath(jail, "evil.tar");
+    CHECK(testarchive::Write(evil, "gnutar", nullptr, {
+        { "ok.txt", "fine" },
+        { "../../dotdot.txt", "escaped" },
+        { at("absolute.txt"), "escaped" },
+        { "out", tmp.path, 'l' },
+        { "out/through-link.txt", "escaped" } }));
+    out = app::ExtractNow({ evil, jail, false }, none, noCancel);
+    CHECK(out.ok);
+    CHECK_EQ(read("jail/ok.txt"), std::string("fine"));
+    CHECK(!platform::PathExists(at("dotdot.txt")));
+    CHECK(!platform::PathExists(app::JoinPath(fs::path(tmp.path).parent_path().string(), "dotdot.txt")));
+    CHECK(!platform::PathExists(at("absolute.txt")));
+    CHECK(!platform::PathExists(at("through-link.txt")));
+    CHECK(out.note.find("outside") != std::string::npos);
+    CHECK(!stagingLeft(jail));
+
+    // Cancelled before it starts: nothing at all.
+    const std::string stop = tmp.dir("stop");
+    const std::string stopZip = app::JoinPath(stop, "s.zip");
+    CHECK(testarchive::Write(stopZip, "zip", nullptr, { { "s.txt", "s" } }));
+    const std::atomic<bool> cancelled{ true };
+    out = app::ExtractNow({ stopZip, stop, true }, none, cancelled);
+    CHECK(out.cancelled);
+    CHECK(!platform::PathExists(at("stop/s")));
+    CHECK(!stagingLeft(stop));
+
+    // Cancelled part way through: what was unpacked so far is thrown away.
+    std::string noise(4 << 20, '\0');
+    for (size_t i = 0; i < noise.size(); ++i) noise[i] = (char)((i * 2654435761u) >> 13);
+    const std::string bigZip = app::JoinPath(stop, "big.zip");
+    CHECK(testarchive::Write(bigZip, "zip", nullptr, { { "first.bin", noise }, { "second.bin", noise } }));
+    std::atomic<bool> midway{ false };
+    int progressCalls = 0;
+    app::ExtractQuestions cq;
+    cq.progress = [&](float f) {
+        ++progressCalls;
+        if (f > 0.0f && f < 1.0f) midway = true;
+    };
+    out = app::ExtractNow({ bigZip, stop, true }, cq, midway);
+    CHECK(out.cancelled);
+    CHECK(progressCalls >= 1);
+    CHECK(!platform::PathExists(at("stop/big")));
+    CHECK(!stagingLeft(stop));
+
+    // Not an archive at all, whatever its name says.
+    const std::string fake = tmp.file("fake.zip", "this is just text");
+    out = app::ExtractNow({ fake, tmp.path, true }, none, noCancel);
+    CHECK(!out.ok);
+    CHECK(!out.error.empty());
+    CHECK(!platform::PathExists(at("fake")));
+    if (platform::SevenZipProgram().empty())
+        {
+        // Only 7-Zip reads a disk image; without it, it says so.
+        const std::string wim = tmp.file("image.wim", "not really");
+        out = app::ExtractNow({ wim, tmp.path, true }, none, noCancel);
+        CHECK(!out.ok);
+        CHECK(out.error.find("7-Zip") != std::string::npos);
+        }
+
+    // Recorded for Undo, which sends what was unpacked to the Recycle Bin.
+    app::AppState state;
+    const std::string undoDir = tmp.dir("undo");
+    const std::string undoZip = app::JoinPath(undoDir, "u.zip");
+    CHECK(testarchive::Write(undoZip, "zip", nullptr, { { "u1.txt", "1" }, { "u2.txt", "2" } }));
+    const app::ExtractRequest undoRequest{ undoZip, undoDir, false };
+    out = app::ExtractNow(undoRequest, none, noCancel);
+    app::FinishExtract(state, undoRequest, out);
+    CHECK_EQ(state.undoHistory.size(), (size_t)1);
+    if (!state.undoHistory.empty())
+        {
+        CHECK(state.undoHistory.back().kind == app::UndoKind::Extract);
+        CHECK(app::UndoQuestion(state, state.undoHistory.back()).find("extracted from 'u.zip'") != std::string::npos);
+        CHECK(app::Undo(state, 0, error));
+        }
+    CHECK(!platform::PathExists(app::JoinPath(undoDir, "u1.txt")));
+    CHECK(!platform::PathExists(app::JoinPath(undoDir, "u2.txt")));
+    CHECK(platform::PathExists(undoZip));
+
+    // The background job: it asks, waits for the answer, finishes, and
+    // the interface's tick records it.
+    auto waitFor = [](auto done) {
+        for (int i = 0; i < 1000 && !done(); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        return done();
+    };
+    const std::string jobDir = tmp.dir("job");
+    const std::string jobZip = app::JoinPath(jobDir, "job.zip");
+    CHECK(testarchive::Write(jobZip, "zip", nullptr, { { "j.txt", "job" } }, "pw"));
+    app::extractjob::Start({ { jobZip, jobDir, true } });
+    CHECK(app::extractjob::Poll().stage != app::extractjob::Stage::Idle);
+    CHECK(waitFor([] { return app::extractjob::Poll().stage == app::extractjob::Stage::NeedPassphrase; }));
+    CHECK(!app::extractjob::Poll().wrongPassphrase);
+    app::extractjob::AnswerPassphrase(true, "pw");
+    CHECK(waitFor([] { return app::extractjob::Poll().stage == app::extractjob::Stage::Idle; }));
+    std::vector<std::string> messages;
+    app::extractjob::Tick(state, messages);
+    CHECK(messages.empty());
+    CHECK_EQ(read("job/job/j.txt"), std::string("job"));
+    CHECK_EQ(state.undoHistory.size(), (size_t)1);
+    // Cancelled while it waits for a passphrase: nothing recorded.
+    app::extractjob::Start({ { jobZip, jobDir, true } });
+    CHECK(waitFor([] { return app::extractjob::Poll().stage == app::extractjob::Stage::NeedPassphrase; }));
+    app::extractjob::Cancel();
+    CHECK(waitFor([] { return app::extractjob::Poll().stage == app::extractjob::Stage::Idle; }));
+    app::extractjob::Tick(state, messages);
+    CHECK(messages.empty());
+    CHECK(!platform::PathExists(at("job/job (2)")));
+    CHECK(!stagingLeft(jobDir));
+    app::extractjob::Shutdown();
+
+    // 7-Zip's part: an encrypted 7z, names and all, which libarchive
+    // cannot open.
+    const std::string sevenZip = platform::SevenZipProgram();
+    if (sevenZip.empty())
+        {
+        std::printf("note: 7-Zip not installed; its tests were skipped\n");
+        return;
+        }
+    const std::string sz = tmp.dir("sz");
+    tmp.file("sz/plain.txt", "behind a passphrase");
+    const std::string encrypted = app::JoinPath(sz, "enc.7z");
+    const std::string cmd = "cd '" + sz + "' && '" + sevenZip + "' a -bso0 -bsp0 -pSECRET -mhe=on enc.7z plain.txt";
+    CHECK(std::system(cmd.c_str()) == 0);
+    CHECK(platform::DeletePermanently({ app::JoinPath(sz, "plain.txt") }, error));
+    platform::ArchiveListing listing;
+    platform::ArchiveFailure why{};
+    CHECK(!platform::ListArchive(encrypted, "", listing, why, error));
+    CHECK(why == platform::ArchiveFailure::NeedPassphrase);
+    wrongs.clear();
+    pq.passphrase = [&](bool wrong, std::string& p) {
+        wrongs.push_back(wrong);
+        p = wrongs.size() == 1 ? "wrong" : "SECRET";
+        return true;
+    };
+    out = app::ExtractNow({ encrypted, sz, true }, pq, noCancel);
+    CHECK(out.ok);
+    CHECK_EQ(read("sz/enc/plain.txt"), std::string("behind a passphrase"));
+    CHECK_EQ(wrongs.size(), (size_t)2);
+    CHECK(!stagingLeft(sz));
+    // Names in the clear and contents encrypted: asked for before
+    // anything is unpacked, and not told it was wrong the first time.
+    tmp.file("sz/open-names.txt", "names visible");
+    const std::string dataOnly = app::JoinPath(sz, "data-only.7z");
+    const std::string dataCmd = "cd '" + sz + "' && '" + sevenZip + "' a -bso0 -bsp0 -pSECRET data-only.7z open-names.txt";
+    CHECK(std::system(dataCmd.c_str()) == 0);
+    CHECK(platform::DeletePermanently({ app::JoinPath(sz, "open-names.txt") }, error));
+    wrongs.clear();
+    out = app::ExtractNow({ dataOnly, sz, false }, pq, noCancel);
+    CHECK(out.ok);
+    CHECK_EQ(read("sz/open-names.txt"), std::string("names visible"));
+    CHECK_EQ(wrongs.size(), (size_t)2);
+    if (wrongs.size() == 2) CHECK(!wrongs[0] && wrongs[1]);
+
+    // A format only 7-Zip reads: a WIM image it made itself.
+    tmp.file("sz/inwim.txt", "wim");
+    const std::string wimCmd = "cd '" + sz + "' && '" + sevenZip + "' a -bso0 -bsp0 -twim img.wim inwim.txt";
+    if (std::system(wimCmd.c_str()) == 0)
+        {
+        CHECK(platform::DeletePermanently({ app::JoinPath(sz, "inwim.txt") }, error));
+        out = app::ExtractNow({ app::JoinPath(sz, "img.wim"), sz, false }, none, noCancel);
+        CHECK(out.ok);
+        CHECK_EQ(read("sz/inwim.txt"), std::string("wim"));
+        }
+}
+#endif
+
 int main()
 {
 #ifndef _WIN32
@@ -2048,6 +2363,7 @@ int main()
     TestLinuxExecutables();
     TestProgramScan();
     TestLinuxDashPinning();
+    TestExtract();
 #endif
     TestSettings();
     TestNavigationAndListing();

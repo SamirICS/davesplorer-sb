@@ -23,11 +23,12 @@ enum class UndoKind
     Move,     // undo moves it back to the folder it came from
     Copy,     // undo sends the copy to the Recycle Bin
     Trash,    // undo restores it from the Recycle Bin
+    Extract,  // unpacked from the archive `from`; undo sends it to the Recycle Bin
 };
 
 struct UndoItem
 {
-    std::string from;   // where it was; empty for Create and Copy
+    std::string from;   // where it was; empty for Create and Copy, the archive for Extract
     std::string to;     // where it is now; empty for Trash
 };
 

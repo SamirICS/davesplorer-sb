@@ -24,6 +24,15 @@ inline constexpr int kThumbnailSizes[] = { 64, 96, 128, 192 };
 // Saved layout files File > Recent layouts remembers, newest first.
 inline constexpr int kRecentLayouts = 8;
 
+// What double-clicking an archive does.
+enum class ArchiveDoubleClick
+{
+    Ask = 0,            // offer to extract it, or open it with its program
+    ExtractHere = 1,
+    ExtractToFolder = 2,
+    Open = 3,           // hand it to the desktop's program for it
+};
+
 // A view the user pinned: reopened at the next launch under the same id, so
 // imgui.ini docks it back where it sat.
 struct PinnedView
@@ -49,6 +58,7 @@ struct Settings
     bool  openImagesInApp = true;  // double-click on an image: the built-in viewer instead of the shell
     bool  openDocumentsInApp = true;  // and on a PDF or Markdown file
     bool  openTextInApp = true;    // and on a text file: source, scripts, JSON, logs
+    ArchiveDoubleClick archiveDoubleClick = ArchiveDoubleClick::Ask;
     ViewMode viewMode = ViewMode::Details;   // what a new view starts as
     int   thumbnailSize = 96;      // unscaled pixels, one of kThumbnailSizes
     std::string startPath;         // where the first tab opens; "" is This PC

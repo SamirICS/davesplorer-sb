@@ -21,6 +21,7 @@ enum class FileDialog
     None,
     OpenLayout,
     SaveLayout,
+    ExtractDest,   // Extract to...: a folder
 };
 
 enum class Dialog
@@ -33,6 +34,7 @@ enum class Dialog
     Delete,
     Move,
     Undo,
+    ExtractChoice,   // double-click on an archive: extract it, or open it?
     Error,
 };
 
@@ -168,6 +170,16 @@ struct UiState
     std::vector<std::string> moveSources;
     std::string              moveDest;
     bool                     moveFromCut = false;   // empty the clipboard after, as a paste does
+
+    // Archives waiting on an answer: the double-click question, or the
+    // folder Extract to... asks for.
+    std::vector<std::string> extractArchives;
+    bool                     extractRemember = false;   // the question's "Always do this"
+    std::string              extractDestChosen;         // the folder dialog's answer, handled next frame
+    std::string              extractPassphrase;         // being typed; cleared once handed over
+    // Errors and notes from finished extractions, shown together once
+    // nothing is extracting any more.
+    std::vector<std::string> extractMessages;
 
     // The history entry the Undo dialog asks about, and its label to make
     // sure it is still that entry when the answer comes.
