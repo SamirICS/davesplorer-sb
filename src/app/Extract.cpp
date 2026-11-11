@@ -1,10 +1,12 @@
 #include "app/Extract.h"
 #include "app/AppState.h"
+#include "app/Settings.h"
 #include "app/PathUtil.h"
 #include "app/Undo.h"
 #include "platform/FileSystem.h"
 #include "platform/Strings.h"
 
+#include <algorithm>
 #include <condition_variable>
 #include <deque>
 #include <filesystem>
@@ -140,7 +142,11 @@ std::string ArchiveStem(const std::string& name)
     return name;
 }
 
-ExtractOutcome ExtractNow(const ExtractRequest& request, const ExtractQuestions& questions,
+namespace
+{
+
+// One archive, nothing found inside it.
+ExtractOutcome ExtractOne(const ExtractRequest& request, const ExtractQuestions& questions,
                           const std::atomic<bool>& cancel)
 {
     if (!platform::PathExists(request.archive)) return Failed("'" + PathName(request.archive) + "' is no longer there.");
@@ -269,6 +275,141 @@ ExtractOutcome ExtractNow(const ExtractRequest& request, const ExtractQuestions&
     return out;
 }
 
+void AddNote(ExtractOutcome& out, const std::string& line)
+{
+    out.note += (out.note.empty() ? "" : "\n") + line;
+}
+
+bool IsUnder(const std::string& path, const std::string& dir)
+{
+    return path.size() > dir.size() && path.compare(0, dir.size(), dir) == 0 && path[dir.size()] == '/';
+}
+
+// Puts an unpacked archive away in the originals folder beside it. One
+// already in such a folder stays put, so extracting it again does not
+// nest a second one.
+bool MoveOriginal(const std::string& archive, const std::string& folderName, std::string& movedTo, std::string& error)
+{
+    const std::string dir = ParentPath(archive);
+    if (PathName(dir) == folderName) return false;
+    const std::string folder = JoinPath(dir, folderName);
+    if (!platform::IsDirectory(folder))
+        {
+        if (Exists(folder))
+            {
+            error = "'" + folderName + "' in " + PathName(dir) + " is a file, so '" + PathName(archive) + "' stayed where it was.";
+            return false;
+            }
+        if (!platform::CreateFolder(folder, error)) return false;
+        }
+    movedTo = JoinPath(folder, FreeName(folder, PathName(archive), false));
+    return platform::RenamePath(archive, movedTo, error);
+}
+
+// Every archive in what was just unpacked, not looking inside links or an
+// originals folder.
+void FindArchives(const std::string& path, const std::string& originalsFolder, std::vector<std::string>& found)
+{
+    std::error_code ec;
+    const fs::file_status st = fs::symlink_status(Fs(path), ec);
+    if (ec || fs::is_symlink(st)) return;
+    if (fs::is_regular_file(st))
+        {
+        if (IsArchiveName(PathName(path))) found.push_back(path);
+        return;
+        }
+    if (!fs::is_directory(st) || (!originalsFolder.empty() && PathName(path) == originalsFolder)) return;
+    std::vector<std::string> children;
+    for (const fs::directory_entry& e : fs::directory_iterator(Fs(path), ec)) children.push_back(Utf8(e.path()));
+    std::sort(children.begin(), children.end());
+    for (const std::string& c : children) FindArchives(c, originalsFolder, found);
+}
+
+// Archives inside what `out` placed, each into its own folder beside it,
+// then whatever those held, down to kMaxNestedDepth.
+void ExtractNested(const ExtractRequest& request, const ExtractQuestions& questions, const std::atomic<bool>& cancel,
+                   ExtractOutcome& out)
+{
+    std::vector<std::string> roots = out.placed;
+    for (int depth = 1; depth <= kMaxNestedDepth && !roots.empty(); ++depth)
+        {
+        std::vector<std::string> found;
+        for (const std::string& r : roots) FindArchives(r, request.originalsFolder, found);
+        roots.clear();
+        for (const std::string& inner : found)
+            {
+            if (cancel)
+                {
+                AddNote(out, "Stopped before every archive inside was extracted.");
+                return;
+                }
+            if (out.nestedExtracted >= kMaxNestedArchives)
+                {
+                AddNote(out, "Stopped after " + std::to_string(kMaxNestedArchives) + " archives found inside.");
+                return;
+                }
+            if (questions.started) questions.started(inner);
+            ExtractOutcome sub = ExtractOne({ inner, ParentPath(inner), true }, questions, cancel);
+            if (!sub.ok)
+                {
+                if (!sub.cancelled) AddNote(out, sub.error);
+                continue;
+                }
+            ++out.nestedExtracted;
+            if (!sub.note.empty()) AddNote(out, sub.note);
+            for (const std::string& p : sub.placed)
+                {
+                // Beside an archive at the top of an "Extract here": in the
+                // destination, so Undo must know about it too.
+                bool inside = false;
+                for (const std::string& q : out.placed) inside = inside || IsUnder(p, q);
+                if (!inside) out.placed.push_back(p);
+                roots.push_back(p);
+                }
+            if (request.originalsFolder.empty()) continue;
+            std::string movedTo, error;
+            if (MoveOriginal(inner, request.originalsFolder, movedTo, error))
+                {
+                for (std::string& p : out.placed)
+                    if (p == inner) p = movedTo;
+                }
+            else if (!error.empty())
+                {
+                AddNote(out, error);
+                }
+            }
+        if (depth == kMaxNestedDepth && !roots.empty())
+            AddNote(out, "Archives more than " + std::to_string(kMaxNestedDepth) + " deep were left packed.");
+        }
+}
+
+} // namespace
+
+ExtractRequest MakeExtractRequest(const Settings& settings, const std::string& archive, const std::string& destDir,
+                                  bool ownFolder)
+{
+    ExtractRequest r{ archive, destDir, ownFolder };
+    r.nested = settings.extractNested;
+    std::string reason;
+    if (settings.moveOriginals && IsValidFileName(settings.originalsFolder, reason)) r.originalsFolder = settings.originalsFolder;
+    return r;
+}
+
+ExtractOutcome ExtractNow(const ExtractRequest& request, const ExtractQuestions& questions,
+                          const std::atomic<bool>& cancel)
+{
+    ExtractOutcome out = ExtractOne(request, questions, cancel);
+    if (!out.ok) return out;
+    if (request.nested) ExtractNested(request, questions, cancel, out);
+    if (!request.originalsFolder.empty())
+        {
+        std::string error;
+        if (MoveOriginal(request.archive, request.originalsFolder, out.movedTo, error)) out.movedFrom = request.archive;
+        else if (!error.empty()) AddNote(out, error);
+        }
+    return out;
+}
+
 void FinishExtract(AppState& state, const ExtractRequest& request, const ExtractOutcome& outcome)
 {
     const std::string name = "'" + PathName(request.archive) + "'";
@@ -279,14 +420,23 @@ void FinishExtract(AppState& state, const ExtractRequest& request, const Extract
         for (const std::string& p : outcome.replaced) trash.items.push_back({ p, "" });
         RecordUndo(state, std::move(trash));
         }
+    // Recorded before the extraction, so Undo takes the unpacked items away
+    // first and puts the archive back second.
+    if (!outcome.movedTo.empty())
+        RecordUndo(state, { UndoKind::Move, { { outcome.movedFrom, outcome.movedTo } },
+                            "Move " + name + " to '" + PathName(ParentPath(outcome.movedTo)) + "'" });
     UndoEntry entry{ UndoKind::Extract, {}, "Extract " + name };
     for (const std::string& p : outcome.placed) entry.items.push_back({ request.archive, p });
     RecordUndo(state, std::move(entry));
     RefreshAll(state);
     if (outcome.ok)
+        {
         state.statusMessage = outcome.placed.size() == 1 && request.ownFolder
             ? "Extracted " + name + " to '" + PathName(outcome.placed[0]) + "'"
             : "Extracted " + name;
+        if (outcome.nestedExtracted == 1) state.statusMessage += ", and 1 archive inside";
+        else if (outcome.nestedExtracted > 1) state.statusMessage += ", and " + std::to_string(outcome.nestedExtracted) + " archives inside";
+        }
 }
 
 namespace extractjob
@@ -357,6 +507,11 @@ void Run(Job& job)
     q.progress = [](float f) {
         std::lock_guard<std::mutex> lock(g_mutex);
         g_status.progress = f;
+    };
+    q.started = [](const std::string& archive) {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        g_status.archive = archive;
+        g_status.progress = 0.0f;
     };
     ExtractOutcome outcome = ExtractNow(job.request, q, job.cancelled);
     std::lock_guard<std::mutex> lock(g_mutex);

@@ -121,7 +121,7 @@ enum class ExtractTarget
     OwnFolder,
     Choose,
 };
-void StartExtract(UiState& ui, const std::vector<std::string>& archives, ExtractTarget target);
+void StartExtract(const app::Settings& settings, UiState& ui, const std::vector<std::string>& archives, ExtractTarget target);
 // 'Extract to "name/"', or its wording for several archives.
 std::string ExtractToFolderLabel(const std::vector<std::string>& archives);
 // Once a frame: starts what the folder dialog chose, and records what
@@ -129,6 +129,21 @@ std::string ExtractToFolderLabel(const std::vector<std::string>& archives);
 void TickExtract(app::AppState& state, UiState& ui);
 // The double-click question and the extraction window, with the dialogs.
 void DrawExtractDialogs(app::AppState& state, UiState& ui);
+
+// Vertical tabs, for every window that can sit in a pane with folder
+// views: the window class before Begin, the tab column and body after it
+// (true when a body was begun), and PaneEnd in place of ImGui::End().
+// The requests the columns made are carried out after all windows.
+void PaneBeforeBegin(const app::AppState& state);
+bool PaneAfterBegin(app::AppState& state, UiState& ui, bool visible, bool wantFront);
+void PaneEnd(bool body);
+void HandlePaneRequests(app::AppState& state, UiState& ui);
+
+// The Settings menu on the menu bar, and the window "All settings..."
+// opens.
+void DrawSettingsMenu(app::AppState& state, UiState& ui);
+void DrawSettingsWindow(app::AppState& state, UiState& ui);
+std::string MoveOriginalsLabel(const app::Settings& settings);
 
 void ZoomBy(app::AppState& state, float delta);
 void ZoomReset(app::AppState& state);

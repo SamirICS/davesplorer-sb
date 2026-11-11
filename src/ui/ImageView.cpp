@@ -411,6 +411,7 @@ bool DrawFileView(app::AppState& state, UiState& ui, int index)
     FileViewUi& v = ui.fileView(view.id);
     if (ui.viewerSplitFor == view.id) return false;   // its dock node is made next frame
 
+    const bool wantFront = v.wantFocus;
     if (v.wantFocus)
         {
         ImGui::SetNextWindowFocus();
@@ -431,6 +432,7 @@ bool DrawFileView(app::AppState& state, UiState& ui, int index)
     bool open = true;
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(6, 6));
     // Each kind scrolls its own canvas; the window itself never does.
+    PaneBeforeBegin(state);
     const bool visible = ImGui::Begin(name.c_str(), &open, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     ImGui::PopStyleVar();
     if (visible)
@@ -443,6 +445,7 @@ bool DrawFileView(app::AppState& state, UiState& ui, int index)
             if (v.dockId != 0) ui.viewerDock = v.dockId;
             }
         }
+    const bool body = PaneAfterBegin(state, ui, visible, wantFront);
     if (visible && view.kind == app::FileViewKind::Pdf)
         {
         DrawPdfFile(state, ui, view, v);
@@ -475,7 +478,7 @@ bool DrawFileView(app::AppState& state, UiState& ui, int index)
         if (state.settings.showStatusBar) DrawImageStatusBar(view, v);
         HandleImageKeys(view, v, canvasCenter);
         }
-    ImGui::End();
+    PaneEnd(body);
     return !open;
 }
 

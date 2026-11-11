@@ -68,10 +68,10 @@ bool OpenEntryHere(app::AppState& state, UiState& ui, int tabIndex, int entryInd
                 RequestDialog(ui, Dialog::ExtractChoice);
                 return true;
             case app::ArchiveDoubleClick::ExtractHere:
-                StartExtract(ui, { e.path }, ExtractTarget::Here);
+                StartExtract(state.settings, ui, { e.path }, ExtractTarget::Here);
                 return true;
             case app::ArchiveDoubleClick::ExtractToFolder:
-                StartExtract(ui, { e.path }, ExtractTarget::OwnFolder);
+                StartExtract(state.settings, ui, { e.path }, ExtractTarget::OwnFolder);
                 return true;
             case app::ArchiveDoubleClick::Open:
                 break;
@@ -416,9 +416,9 @@ void DrawRowContextMenu(app::AppState& state, UiState& ui, int tabIndex)
         }
     if (!archives.empty())
         {
-        if (ImGui::MenuItem("Extract here")) StartExtract(ui, archives, ExtractTarget::Here);
-        if (ImGui::MenuItem((ExtractToFolderLabel(archives) + "###extractown").c_str())) StartExtract(ui, archives, ExtractTarget::OwnFolder);
-        if (ImGui::MenuItem("Extract to...", nullptr, false, !ui.fileDialogOpen)) StartExtract(ui, archives, ExtractTarget::Choose);
+        if (ImGui::MenuItem("Extract here")) StartExtract(state.settings, ui, archives, ExtractTarget::Here);
+        if (ImGui::MenuItem((ExtractToFolderLabel(archives) + "###extractown").c_str())) StartExtract(state.settings, ui, archives, ExtractTarget::OwnFolder);
+        if (ImGui::MenuItem("Extract to...", nullptr, false, !ui.fileDialogOpen)) StartExtract(state.settings, ui, archives, ExtractTarget::Choose);
         }
 #endif
     // A program is started, not opened: no handler is asked, and it runs in
@@ -1065,6 +1065,7 @@ bool DrawView(app::AppState& state, UiState& ui, int tabIndex)
     app::Tab& tab = state.tabs[(size_t)tabIndex];
     ViewUi& v = ui.view(tab.id);
 
+    const bool wantFront = v.wantFocus;
     if (v.wantFocus)
         {
         ImGui::SetNextWindowFocus();
@@ -1086,6 +1087,7 @@ bool DrawView(app::AppState& state, UiState& ui, int tabIndex)
     const std::string name = ViewWindowName(state, tab);
     bool open = true;
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(6, 6));
+    PaneBeforeBegin(state);
     const bool visible = ImGui::Begin(name.c_str(), &open, ImGuiWindowFlags_NoCollapse);
     ImGui::PopStyleVar();
     // Right-click on the view's tab (its title bar when floating): straight
@@ -1105,9 +1107,10 @@ bool DrawView(app::AppState& state, UiState& ui, int tabIndex)
             state.activeTab = tabIndex;
             ui.activeFileView = -1;
             }
-        DrawViewContents(state, ui, tabIndex);
         }
-    ImGui::End();
+    const bool body = PaneAfterBegin(state, ui, visible, wantFront);
+    if (visible) DrawViewContents(state, ui, tabIndex);
+    PaneEnd(body);
     return !open;
 }
 

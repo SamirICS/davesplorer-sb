@@ -8,6 +8,7 @@
 
 #include "app/Extract.h"
 #include "app/PathUtil.h"
+#include "app/Settings.h"
 #include "platform/Shell.h"
 
 #include "imgui.h"
@@ -119,7 +120,7 @@ std::string ExtractToFolderLabel(const std::vector<std::string>& archives)
     return "Extract to \"" + app::ArchiveStem(app::PathName(archives[0])) + "/\"";
 }
 
-void StartExtract(UiState& ui, const std::vector<std::string>& archives, ExtractTarget target)
+void StartExtract(const app::Settings& settings, UiState& ui, const std::vector<std::string>& archives, ExtractTarget target)
 {
     if (archives.empty()) return;
     if (target == ExtractTarget::Choose)
@@ -131,7 +132,7 @@ void StartExtract(UiState& ui, const std::vector<std::string>& archives, Extract
         }
     std::vector<app::ExtractRequest> requests;
     for (const std::string& a : archives)
-        requests.push_back({ a, app::ParentPath(a), target == ExtractTarget::OwnFolder });
+        requests.push_back(app::MakeExtractRequest(settings, a, app::ParentPath(a), target == ExtractTarget::OwnFolder));
     app::extractjob::Start(requests);
 }
 
@@ -140,7 +141,8 @@ void TickExtract(app::AppState& state, UiState& ui)
     if (!ui.extractDestChosen.empty())
         {
         std::vector<app::ExtractRequest> requests;
-        for (const std::string& a : ui.extractArchives) requests.push_back({ a, ui.extractDestChosen, false });
+        for (const std::string& a : ui.extractArchives)
+            requests.push_back(app::MakeExtractRequest(state.settings, a, ui.extractDestChosen, false));
         app::extractjob::Start(requests);
         ui.extractDestChosen.clear();
         ui.extractArchives.clear();
@@ -186,7 +188,7 @@ void DrawExtractDialogs(app::AppState& state, UiState& ui)
                 }
             else
                 {
-                StartExtract(ui, chosen, choice == (int)app::ArchiveDoubleClick::ExtractHere ? ExtractTarget::Here
+                StartExtract(state.settings, ui, chosen, choice == (int)app::ArchiveDoubleClick::ExtractHere ? ExtractTarget::Here
                                                                                              : ExtractTarget::OwnFolder);
                 }
             }

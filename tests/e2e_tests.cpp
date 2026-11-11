@@ -1782,6 +1782,44 @@ void RegisterTests(ImGuiTestEngine* e)
         IM_CHECK(fx.ui.dialogMessage.empty());
     };
 
+    // Vertical tabs: the pane lists its tabs down the side, "+" adds one
+    // in the same pane and brings it to the front, and choosing an entry
+    // brings that one back.
+    t = IM_REGISTER_TEST(e, "explorer", "vertical_tabs_add_and_switch");
+    t->TestFunc = [](ImGuiTestContext* ctx) {
+        Fixture& fx = *g_fx;
+        GoToScratch(ctx, fx);
+        fx.state.settings.verticalTabs = true;
+        ctx->Yield(5);
+        const int firstId = fx.state.tabs[0].id;
+        ImGuiWindow* first = ViewWindow(ctx, firstId);
+        IM_CHECK(first != nullptr && first->DockNode != nullptr);
+        IM_CHECK(first->DockNode->TabBar == nullptr);   // no row of tabs on top
+
+        ctx->SetRef(ActiveViewRef(fx));
+        ctx->ItemClick("**/" ICON_MD_ADD "##newpanetab");
+        ctx->Yield(5);
+        IM_CHECK_EQ(fx.state.tabs.size(), (size_t)2);
+        const int secondId = fx.state.tabs[1].id;
+        ImGuiWindow* second = ViewWindow(ctx, secondId);
+        IM_CHECK(second != nullptr);
+        IM_CHECK(second->DockNode == first->DockNode);    // same pane
+        IM_CHECK(first->DockNode->Windows[0] == second);  // and in front
+
+        // Back to the first, by its entry in the column.
+        ctx->SetRef(ImGuiTestRef(ui::ViewWindowId(secondId)));
+        const std::string label = std::string("**/" ICON_MD_FOLDER "  ") + app::PathName(fx.root);
+        ctx->ItemClick(ImGuiTestRef(label.c_str()));
+        ctx->Yield(3);
+        IM_CHECK(first->DockNode->Windows[0] == first);
+        IM_CHECK_EQ(fx.state.active().id, firstId);
+
+        // Off again: the pane has its tab bar back.
+        fx.state.settings.verticalTabs = false;
+        ctx->Yield(5);
+        IM_CHECK(first->DockNode != nullptr && first->DockNode->TabBar != nullptr);
+    };
+
     // Double-click asks; Extract here unpacks beside the archive.
     t = IM_REGISTER_TEST(e, "explorer", "extract_archive_double_click_asks");
     t->TestFunc = [](ImGuiTestContext* ctx) {

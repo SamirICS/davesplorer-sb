@@ -222,6 +222,19 @@ entry is greyed out everywhere else, including KDE Plasma, Windows and macOS.
   outside the destination: `..`, absolute paths and paths through links
   are skipped and reported. Edit > Undo sends what was unpacked to the
   trash.
+- **Settings menu**: the options that are not about one view, with
+  "All settings..." opening a Settings window. **Move archives to
+  'zipped-originals' after extracting** puts each archive away in a
+  folder of that name beside it once it is unpacked (the name is yours to
+  pick; Undo brings the archive back). **Also extract archives found
+  inside** goes on into every archive among what was unpacked, each into
+  its own folder beside it, up to 8 levels down and 500 archives.
+- **Vertical tabs** (Settings menu): each pane lists its tabs down its
+  left side instead of in a row on top, with "+" at the bottom for a new
+  tab in that pane, the way Directory Opus shows folder tabs. A split
+  gives each half its own column. Click to switch, drag a tab onto another
+  to reorder, middle-click or right-click to close; the column's width is
+  dragged at its edge and remembered.
 - **Context menus** on items and on the empty area, plus "Show in Windows
   Explorer" and "Open terminal here". Each view's status bar also has New
   folder, Open terminal and Open in Windows Explorer buttons at its right

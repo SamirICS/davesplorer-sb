@@ -10,6 +10,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace ui
@@ -237,6 +238,27 @@ struct UiState
     bool        fileDialogOpen = false;    // one is up; the menu items wait
     std::string layoutToOpen;
     std::string layoutToSave;
+    // Vertical tabs: what the pane columns asked for while being drawn,
+    // done once every window has been (each would move state.tabs).
+    struct PaneNewTab
+        {
+        std::string path;
+        ImGuiID     dockId = 0;
+        bool        requested = false;
+        } paneNewTab;
+    struct PaneMove
+        {
+        int from = 0;     // tab ids: this one goes...
+        int before = 0;   // ...to where this one is
+        } paneMove;
+    std::vector<ImGuiID>        paneClose;          // window ids
+    std::unordered_set<ImGuiID> paneFrontPending;   // windows to put in front once docked
+
+    // The Settings window, and its folder-name field: edited here and
+    // only copied to the setting while it is a valid name.
+    bool        showSettings = false;
+    std::string settingsFolderText;
+    std::string settingsFolderError;
     bool  showMetrics = false;
     bool  showDemo = false;
 };

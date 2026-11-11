@@ -39,6 +39,7 @@
 #include <filesystem>
 
 #include <chrono>
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <chrono>
@@ -649,6 +650,11 @@ void TestSettings()
     s.startPath = "C:\\Users";
     s.windowWidth = 1000;
     s.archiveDoubleClick = app::ArchiveDoubleClick::ExtractToFolder;
+    s.moveOriginals = true;
+    s.extractNested = true;
+    s.originalsFolder = "old zips";
+    s.verticalTabs = true;
+    s.verticalTabsWidth = 240.0f;
 
     app::Settings back;
     const std::string text = app::SerializeSettings(s);
@@ -667,6 +673,13 @@ void TestSettings()
     CHECK_EQ(back.startPath, "C:\\Users");
     CHECK_EQ(back.windowWidth, 1000);
     CHECK(back.archiveDoubleClick == app::ArchiveDoubleClick::ExtractToFolder);
+    CHECK(back.moveOriginals);
+    CHECK(back.extractNested);
+    CHECK_EQ(back.originalsFolder, std::string("old zips"));
+    CHECK(back.verticalTabs);
+    CHECK(back.verticalTabsWidth > 239.0f && back.verticalTabsWidth < 241.0f);
+    app::ApplySettingLine(back, "originals_folder", "a/b");   // not a name: ignored
+    CHECK_EQ(back.originalsFolder, std::string("old zips"));
 
     // Garbage in the file must not produce an unusable interface.
     app::ApplySettingLine(back, "ui_scale", "0");
@@ -2241,6 +2254,97 @@ void TestExtract()
         CHECK(!out.ok);
         CHECK(out.error.find("7-Zip") != std::string::npos);
         }
+
+    // Archives inside archives, each into its own folder, and every
+    // archive put away in "zipped-originals" beside where it was.
+    const std::string nest = tmp.dir("nest");
+    const std::string deepTgz = app::JoinPath(nest, "deep.tar.gz");
+    CHECK(testarchive::Write(deepTgz, "gnutar", "gzip", { { "bottom.txt", "bottom" } }));
+    const std::string innerZip = app::JoinPath(nest, "inner.zip");
+    CHECK(testarchive::Write(innerZip, "zip", nullptr, { { "middle.txt", "middle" }, { "deep.tar.gz", ReadAll(fs::path(deepTgz)) } }));
+    const std::string outerZip = app::JoinPath(nest, "outer.zip");
+    CHECK(testarchive::Write(outerZip, "zip", nullptr, { { "top.txt", "top" }, { "inner.zip", ReadAll(fs::path(innerZip)) } }));
+    CHECK(platform::DeletePermanently({ deepTgz, innerZip }, error));
+    app::ExtractRequest nested(outerZip, nest, true);
+    nested.nested = true;
+    nested.originalsFolder = "zipped-originals";
+    std::vector<std::string> startedOn;
+    app::ExtractQuestions nq;
+    nq.started = [&](const std::string& a) { startedOn.push_back(app::PathName(a)); };
+    out = app::ExtractNow(nested, nq, noCancel);
+    CHECK(out.ok);
+    CHECK_EQ(out.nestedExtracted, (size_t)2);
+    CHECK_EQ(read("nest/outer/top.txt"), std::string("top"));
+    CHECK_EQ(read("nest/outer/inner/middle.txt"), std::string("middle"));
+    CHECK_EQ(read("nest/outer/inner/deep/bottom.txt"), std::string("bottom"));
+    CHECK(platform::PathExists(at("nest/outer/zipped-originals/inner.zip")));
+    CHECK(platform::PathExists(at("nest/outer/inner/zipped-originals/deep.tar.gz")));
+    CHECK(!platform::PathExists(at("nest/outer/inner.zip")));
+    CHECK(platform::PathExists(at("nest/zipped-originals/outer.zip")));
+    CHECK(!platform::PathExists(outerZip));
+    CHECK_EQ(out.movedFrom, outerZip);
+    CHECK_EQ(out.movedTo, at("nest/zipped-originals/outer.zip"));
+    CHECK_EQ(startedOn.size(), (size_t)2);
+    CHECK_EQ(out.placed.size(), (size_t)1);
+
+    // Undo takes the unpacked folder away first, then brings the archive
+    // back from zipped-originals.
+    {
+    app::AppState undoState;
+    app::FinishExtract(undoState, nested, out);
+    CHECK_EQ(undoState.undoHistory.size(), (size_t)2);
+    if (undoState.undoHistory.size() == 2)
+        {
+        CHECK(undoState.undoHistory[0].kind == app::UndoKind::Move);
+        CHECK(undoState.undoHistory[1].kind == app::UndoKind::Extract);
+        CHECK(undoState.statusMessage.find("2 archives inside") != std::string::npos);
+        CHECK(app::Undo(undoState, 1, error));
+        CHECK(!platform::PathExists(at("nest/outer")));
+        CHECK(app::Undo(undoState, 0, error));
+        CHECK(platform::PathExists(outerZip));
+        CHECK(!platform::PathExists(at("nest/zipped-originals/outer.zip")));
+        }
+    }
+
+    // Extracted here, an archive at the top lands beside the others: its
+    // folder is in what Undo knows of, and so is where it was put away.
+    const std::string flat = tmp.dir("flat");
+    const std::string flatInner = app::JoinPath(flat, "in.zip");
+    CHECK(testarchive::Write(flatInner, "zip", nullptr, { { "x.txt", "x" } }));
+    const std::string flatOuter = app::JoinPath(flat, "out.zip");
+    CHECK(testarchive::Write(flatOuter, "zip", nullptr, { { "in.zip", ReadAll(fs::path(flatInner)) } }));
+    CHECK(platform::DeletePermanently({ flatInner }, error));
+    app::ExtractRequest flatHere(flatOuter, flat, false);
+    flatHere.nested = true;
+    flatHere.originalsFolder = "zipped-originals";
+    out = app::ExtractNow(flatHere, none, noCancel);
+    CHECK(out.ok);
+    CHECK_EQ(read("flat/in/x.txt"), std::string("x"));
+    CHECK(platform::PathExists(at("flat/zipped-originals/in.zip")));
+    CHECK(platform::PathExists(at("flat/zipped-originals/out.zip")));
+    CHECK(std::find(out.placed.begin(), out.placed.end(), at("flat/in")) != out.placed.end());
+    CHECK(std::find(out.placed.begin(), out.placed.end(), at("flat/zipped-originals/in.zip")) != out.placed.end());
+
+    // An archive already in zipped-originals stays there when extracted
+    // again, and the settings decide what a request asks for.
+    out = app::ExtractNow(app::ExtractRequest(at("flat/zipped-originals/out.zip"), flat, true), none, noCancel);
+    CHECK(out.ok);
+    {
+    app::ExtractRequest again(at("flat/zipped-originals/out.zip"), flat, true);
+    again.originalsFolder = "zipped-originals";
+    out = app::ExtractNow(again, none, noCancel);
+    CHECK(out.ok);
+    CHECK(out.movedTo.empty());
+    CHECK(platform::PathExists(at("flat/zipped-originals/out.zip")));
+    }
+    app::Settings es;
+    CHECK(app::MakeExtractRequest(es, zip, tmp.path, true).originalsFolder.empty());
+    CHECK(!app::MakeExtractRequest(es, zip, tmp.path, true).nested);
+    es.moveOriginals = true;
+    es.extractNested = true;
+    es.originalsFolder = "done";
+    CHECK_EQ(app::MakeExtractRequest(es, zip, tmp.path, true).originalsFolder, std::string("done"));
+    CHECK(app::MakeExtractRequest(es, zip, tmp.path, true).nested);
 
     // Recorded for Undo, which sends what was unpacked to the Recycle Bin.
     app::AppState state;

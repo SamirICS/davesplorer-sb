@@ -445,6 +445,8 @@ void DrawMenuBar(app::AppState& state, UiState& ui)
         ImGui::EndMenu();
         }
 
+    DrawSettingsMenu(state, ui);
+
     if (ImGui::BeginMenu("Help"))
         {
         if (ImGui::MenuItem("About Davesplorer")) RequestDialog(ui, Dialog::About);
@@ -609,12 +611,17 @@ void DrawFrame(app::AppState& state, UiState& ui)
         if (DrawProgramsView(state, ui, i)) closingPrograms.push_back(state.programViews[(size_t)i].id);
     for (int id : closingPrograms) CloseProgramsView(state, ui, id);
 
+    // What the vertical tab columns asked for, now that no window is
+    // being drawn.
+    HandlePaneRequests(state, ui);
+
     // Dialogs are opened and drawn in the host window so OpenPopup and
     // BeginPopupModal see the same ID stack, whichever pane asked.
     ImGui::Begin(kHostWindow);
     DrawDialogs(state, ui);
     ImGui::End();
 
+    DrawSettingsWindow(state, ui);
     if (ui.showMetrics) ImGui::ShowMetricsWindow(&ui.showMetrics);
     if (ui.showDemo) ImGui::ShowDemoWindow(&ui.showDemo);
 

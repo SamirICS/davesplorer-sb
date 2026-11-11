@@ -12,6 +12,7 @@
 #include <atomic>
 #include <functional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace app
@@ -30,12 +31,33 @@ std::string ArchiveStem(const std::string& name);
 
 struct ExtractRequest
 {
+    ExtractRequest() = default;
+    ExtractRequest(std::string archive_, std::string destDir_, bool ownFolder_ = false)
+        : archive(std::move(archive_)), destDir(std::move(destDir_)), ownFolder(ownFolder_) {}
+
     std::string archive;
     std::string destDir;
     // Into a new folder in destDir named after the archive, or, when the
     // archive holds one folder and nothing else, that folder itself.
     bool        ownFolder = false;
+    // Archives found among what was unpacked are unpacked too, each into
+    // its own folder beside it, and so on down.
+    bool        nested = false;
+    // Once unpacked, the archive (and each one found inside) moves into a
+    // folder of this name beside it. Empty leaves them where they are.
+    std::string originalsFolder;
 };
+
+// The request the settings ask for: whether to go into archives found
+// inside, and where originals go afterwards.
+struct Settings;
+ExtractRequest MakeExtractRequest(const Settings& settings, const std::string& archive, const std::string& destDir,
+                                  bool ownFolder);
+
+// How deep archives inside archives are followed, and how many at most
+// one extraction unpacks: an archive can hold itself.
+inline constexpr int    kMaxNestedDepth = 8;
+inline constexpr size_t kMaxNestedArchives = 500;
 
 // What to do when items with the archive's top-level names already exist.
 enum class ConflictChoice
@@ -53,6 +75,9 @@ struct ExtractQuestions
     std::function<bool(bool wrong, std::string& passphrase)> passphrase;
     std::function<ConflictChoice(const std::vector<std::string>& names)> conflict;
     platform::ArchiveProgressFn progress;
+    // An archive found inside is starting; its passphrase question and
+    // progress are about it from here on.
+    std::function<void(const std::string& archive)> started;
 };
 
 struct ExtractOutcome
@@ -61,6 +86,8 @@ struct ExtractOutcome
     bool cancelled = false;
     std::vector<std::string> placed;     // what now sits in the destination
     std::vector<std::string> replaced;   // what was sent to the Recycle Bin to make room
+    std::string movedFrom, movedTo;      // the archive itself, put away in the originals folder
+    size_t nestedExtracted = 0;          // archives found inside and unpacked too
     std::string error;
     std::string note;                    // done, but something was left out
 };

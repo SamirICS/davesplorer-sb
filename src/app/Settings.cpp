@@ -1,4 +1,5 @@
 #include "app/Settings.h"
+#include "app/PathUtil.h"
 
 #include <algorithm>
 #include <cstdlib>
@@ -42,6 +43,19 @@ void ApplySettingLine(Settings& s, const std::string& key, const std::string& va
     else if (key == "open_images_in_app") s.openImagesInApp = ParseBool(value);
     else if (key == "open_documents_in_app") s.openDocumentsInApp = ParseBool(value);
     else if (key == "open_text_in_app")   s.openTextInApp = ParseBool(value);
+    else if (key == "extract_nested")     s.extractNested = ParseBool(value);
+    else if (key == "move_originals")     s.moveOriginals = ParseBool(value);
+    else if (key == "originals_folder")
+        {
+        std::string reason;
+        if (IsValidFileName(value, reason)) s.originalsFolder = value;
+        }
+    else if (key == "vertical_tabs")      s.verticalTabs = ParseBool(value);
+    else if (key == "vertical_tabs_width")
+        {
+        const float f = std::strtof(value.c_str(), nullptr);
+        s.verticalTabsWidth = (f >= 80.0f && f <= 600.0f) ? f : 190.0f;
+        }
     else if (key == "archive_double_click")
         {
         const int n = std::atoi(value.c_str());
@@ -104,6 +118,11 @@ std::string SerializeSettings(const Settings& s)
     out << "open_documents_in_app=" << (s.openDocumentsInApp ? 1 : 0) << '\n';
     out << "open_text_in_app=" << (s.openTextInApp ? 1 : 0) << '\n';
     out << "archive_double_click=" << (int)s.archiveDoubleClick << '\n';
+    out << "extract_nested=" << (s.extractNested ? 1 : 0) << '\n';
+    out << "move_originals=" << (s.moveOriginals ? 1 : 0) << '\n';
+    out << "originals_folder=" << s.originalsFolder << '\n';
+    out << "vertical_tabs=" << (s.verticalTabs ? 1 : 0) << '\n';
+    out << "vertical_tabs_width=" << s.verticalTabsWidth << '\n';
     out << "view_mode=" << (int)s.viewMode << '\n';
     out << "thumbnail_size=" << s.thumbnailSize << '\n';
     out << "start_path=" << s.startPath << '\n';

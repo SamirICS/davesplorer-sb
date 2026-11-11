@@ -257,6 +257,8 @@ add_library(dsp_ui STATIC
     src/ui/TextView.cpp
     src/ui/ProgramsView.cpp
     src/ui/ExtractUi.cpp
+    src/ui/SettingsUi.cpp
+    src/ui/PaneTabs.cpp
     src/ui/Layouts.cpp
     src/ui/Textures.cpp
     src/ui/Thumbnails.cpp

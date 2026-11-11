@@ -216,6 +216,7 @@ bool DrawProgramsView(app::AppState& state, UiState& ui, int index)
     app::ProgramsView& view = state.programViews[(size_t)index];
     ProgramsViewUi& v = ui.programsView(view.id);
 
+    const bool wantFront = v.wantFocus;
     if (v.wantFocus)
         {
         ImGui::SetNextWindowFocus();
@@ -253,6 +254,7 @@ bool DrawProgramsView(app::AppState& state, UiState& ui, int index)
     for (const auto& [col, value] : tabColors) ImGui::PushStyleColor(col, value);
     const std::string name = ProgramsWindowName(state, view);
     bool open = true;
+    PaneBeforeBegin(state);
     const bool visible = ImGui::Begin(name.c_str(), &open, ImGuiWindowFlags_NoCollapse);
     ImGui::PopStyleColor((int)std::size(tabColors));
     // Right-click on the tab (its title bar when floating): straight after
@@ -265,9 +267,10 @@ bool DrawProgramsView(app::AppState& state, UiState& ui, int index)
         if (ImGui::MenuItem("Rescan")) app::RescanPrograms(view);
         ImGui::EndPopup();
         }
+    const bool body = PaneAfterBegin(state, ui, visible, wantFront);
     if (!visible)
         {
-        ImGui::End();
+        PaneEnd(body);
         return !open;
         }
     v.dockId = ImGui::GetWindowDockID();
@@ -282,7 +285,7 @@ bool DrawProgramsView(app::AppState& state, UiState& ui, int index)
         if (view.scanning) MutedText("Looking for programs...");
         else if (!view.filter.empty()) MutedText(("No programs match '" + view.filter + "'.").c_str());
         else MutedText("No programs found under this folder.");
-        ImGui::End();
+        PaneEnd(body);
         return !open;
         }
 
@@ -384,7 +387,7 @@ bool DrawProgramsView(app::AppState& state, UiState& ui, int index)
                 RunProgram(ui, p, false);
                 break;
                 }
-    ImGui::End();
+    PaneEnd(body);
     return !open;
 }
 

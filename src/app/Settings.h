@@ -59,6 +59,11 @@ struct Settings
     bool  openDocumentsInApp = true;  // and on a PDF or Markdown file
     bool  openTextInApp = true;    // and on a text file: source, scripts, JSON, logs
     ArchiveDoubleClick archiveDoubleClick = ArchiveDoubleClick::Ask;
+    bool  extractNested = false;   // go on into archives found inside, each into its own folder
+    bool  moveOriginals = false;   // put an archive away once it is unpacked...
+    std::string originalsFolder = "zipped-originals";   // ...into a folder of this name beside it
+    bool  verticalTabs = false;    // each pane lists its views down its left side instead of in a row on top
+    float verticalTabsWidth = 190.0f;   // that column, in unscaled pixels
     ViewMode viewMode = ViewMode::Details;   // what a new view starts as
     int   thumbnailSize = 96;      // unscaled pixels, one of kThumbnailSizes
     std::string startPath;         // where the first tab opens; "" is This PC
