@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 
@@ -51,10 +52,18 @@ void ApplySettingLine(Settings& s, const std::string& key, const std::string& va
         if (IsValidFileName(value, reason)) s.originalsFolder = value;
         }
     else if (key == "vertical_tabs")      s.verticalTabs = ParseBool(value);
-    else if (key == "vertical_tabs_width")
+    else if (key == "font_family")        s.fontFamily = value;
+    else if (key == "font_size")
         {
         const float f = std::strtof(value.c_str(), nullptr);
-        s.verticalTabsWidth = (f >= 80.0f && f <= 600.0f) ? f : 190.0f;
+        s.fontSize = (f >= 12.0f && f <= 30.0f) ? f : 18.0f;
+        }
+    else if (key == "vertical_tabs_width")
+        {
+        // 190 was the first default, written back by every run since; it
+        // reads as the wider default now rather than as a choice.
+        const float f = std::strtof(value.c_str(), nullptr);
+        s.verticalTabsWidth = (f >= 80.0f && f <= 600.0f && f != 190.0f) ? f : 260.0f;
         }
     else if (key == "archive_double_click")
         {
@@ -123,6 +132,8 @@ std::string SerializeSettings(const Settings& s)
     out << "originals_folder=" << s.originalsFolder << '\n';
     out << "vertical_tabs=" << (s.verticalTabs ? 1 : 0) << '\n';
     out << "vertical_tabs_width=" << s.verticalTabsWidth << '\n';
+    out << "font_family=" << s.fontFamily << '\n';
+    out << "font_size=" << s.fontSize << '\n';
     out << "view_mode=" << (int)s.viewMode << '\n';
     out << "thumbnail_size=" << s.thumbnailSize << '\n';
     out << "start_path=" << s.startPath << '\n';
@@ -170,13 +181,30 @@ bool LoadSettings(const std::string& file, Settings& out)
 
 bool SaveSettings(const std::string& file, const Settings& settings, std::string& error)
 {
-    std::ofstream out(file, std::ios::trunc);
+    // Written beside and renamed over, so a crash part way, or a second
+    // window saving at the same moment, never leaves half a file.
+    const std::string temp = file + ".tmp";
+    {
+    std::ofstream out(temp, std::ios::trunc);
     if (!out)
         {
         error = "Could not write " + file;
         return false;
         }
     out << SerializeSettings(settings);
+    if (!out.flush())
+        {
+        error = "Could not write " + file;
+        return false;
+        }
+    }
+    std::error_code ec;
+    std::filesystem::rename(temp, file, ec);
+    if (ec)
+        {
+        error = "Could not write " + file + ": " + ec.message();
+        return false;
+        }
     return true;
 }
 

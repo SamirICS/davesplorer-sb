@@ -74,11 +74,30 @@ const char* IconFor(PaneKind kind)
     return ICON_MD_FOLDER;
 }
 
-// The window's title, without the "###id" that keeps it stable.
-std::string TitleOf(const ImGuiWindow* w)
+// The window's title, without the "###id" that keeps it stable, nor the
+// icon a Programs window's title starts with (the column draws its own).
+std::string TitleOf(const ImGuiWindow* w, PaneKind kind)
 {
     const char* end = ImGui::FindRenderedTextEnd(w->Name);
-    return std::string((const char*)w->Name, end);
+    std::string title((const char*)w->Name, end);
+    if (kind == PaneKind::Programs && title.rfind(ICON_MD_SETTINGS_APPLICATIONS " ", 0) == 0)
+        title.erase(0, sizeof(ICON_MD_SETTINGS_APPLICATIONS));
+    return title;
+}
+
+// The icon's colour: folders in the app's red, like the shortcut bar;
+// Programs in its tab colour.
+ImU32 IconColorFor(PaneKind kind)
+{
+    const Palette& p = CurrentPalette();
+    switch (kind)
+        {
+        case PaneKind::Folder:   return kFolderRed;
+        case PaneKind::Programs: return p.programsTabOverline;
+        case PaneKind::File:     return p.iconFile;
+        case PaneKind::Other:    break;
+        }
+    return kFolderRed;
 }
 
 void BringToFront(ImGuiDockNode* node, ImGuiWindow* w)
@@ -104,18 +123,44 @@ void DrawColumn(app::AppState& state, UiState& ui, ImGuiWindow* self)
 
     const float scale = ImGui::GetStyle().FontScaleMain * ImGui::GetStyle().FontScaleDpi;
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 4));
+    // Not ImGuiChildFlags_ResizeX: that keeps each child's width in
+    // imgui.ini, over the setting. The width is the setting's, the same
+    // in every pane, and the handle after the column changes it.
     ImGui::BeginChild("##panetabs", ImVec2(state.settings.verticalTabsWidth * scale, 0),
-                      ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeX | ImGuiChildFlags_AlwaysUseWindowPadding);
+                      ImGuiChildFlags_Borders | ImGuiChildFlags_AlwaysUseWindowPadding);
     ImGui::PopStyleVar();
+    // Bigger than the rest of the interface: these are what the eye goes
+    // to when switching folders.
+    const Palette& pal = CurrentPalette();
+    const float textSize = ImGui::GetFontSize() * 1.2f;
+    const float iconSize = ImGui::GetFontSize() * 1.45f;
+    const float rowHeight = iconSize + 12.0f * scale;
     std::string selfPath;
     for (const PaneEntry& e : entries)
         {
         if (e.window == self) selfPath = e.path;
         ImGui::PushID((int)e.window->ID);
-        // A Programs window's title starts with its own icon already.
-        const std::string label = e.kind == PaneKind::Programs ? TitleOf(e.window)
-                                                               : std::string(IconFor(e.kind)) + "  " + TitleOf(e.window);
-        if (ImGui::Selectable(label.c_str(), e.window == self, ImGuiSelectableFlags_SpanAvailWidth) && e.window != self)
+        // A tall row, its icon and name drawn by hand at a larger size so
+        // the icon can take its own colour.
+        const std::string title = TitleOf(e.window, e.kind);
+        const std::string label = std::string(IconFor(e.kind)) + "  " + title;
+        const bool selected = e.window == self;
+        const ImVec2 rowMin = ImGui::GetCursorScreenPos();
+        const std::string rowId = "##panetab" + std::to_string(e.window->ID);   // what the tests click
+        const bool clicked = ImGui::Selectable(rowId.c_str(), selected, ImGuiSelectableFlags_SpanAvailWidth, ImVec2(0, rowHeight));
+        {
+        const ImVec2 rowMax(rowMin.x + ImGui::GetItemRectSize().x, rowMin.y + rowHeight);
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        if (selected) dl->AddRectFilled(rowMin, ImVec2(rowMin.x + 3.0f * scale, rowMax.y), kFolderRed);
+        const float y = rowMin.y + (rowHeight - textSize) * 0.5f;
+        const float iconX = rowMin.x + 10.0f * scale;
+        const ImVec4 clip(rowMin.x, rowMin.y, rowMax.x - 4.0f * scale, rowMax.y);
+        dl->AddText(nullptr, iconSize, ImVec2(iconX, rowMin.y + (rowHeight - iconSize) * 0.5f), IconColorFor(e.kind),
+                    IconFor(e.kind), nullptr, 0.0f, &clip);
+        dl->AddText(nullptr, textSize, ImVec2(iconX + iconSize + 8.0f * scale, y),
+                    selected ? pal.text : pal.textMuted, title.c_str(), nullptr, 0.0f, &clip);
+        }
+        if (clicked && !selected)
             {
             if (node) BringToFront(node, e.window);
             ImGui::FocusWindow(e.window);
@@ -148,13 +193,29 @@ void DrawColumn(app::AppState& state, UiState& ui, ImGuiWindow* self)
         ImGui::PopID();
         }
     ImGui::Spacing();
-    if (ImGui::Button(ICON_MD_ADD "##newpanetab", ImVec2(-FLT_MIN, 0)))
+    ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 1.45f);   // unscaled, as PushFont wants
+    ImGui::PushStyleColor(ImGuiCol_Text, kFolderRed);
+    const bool add = ImGui::Button(ICON_MD_ADD "##newpanetab", ImVec2(-FLT_MIN, rowHeight));
+    ImGui::PopStyleColor();
+    ImGui::PopFont();
+    if (add)
         ui.paneNewTab = { selfPath, node ? node->ID : 0, true };
     TipOnHover("New tab in this pane");
     ImGui::EndChild();
-    // The column's width is the user's, kept for every pane.
-    state.settings.verticalTabsWidth = std::clamp(ImGui::GetItemRectSize().x / scale, 80.0f, 600.0f);
-    ImGui::SameLine();
+    ImGui::SameLine(0.0f, 0.0f);
+    const float handle = 6.0f * scale;
+    ImGui::InvisibleButton("##panetabswidth", ImVec2(handle, std::max(ImGui::GetContentRegionAvail().y, 1.0f)));
+    if (ImGui::IsItemHovered() || ImGui::IsItemActive()) ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+    if (ImGui::IsItemActive())
+        state.settings.verticalTabsWidth = std::clamp(state.settings.verticalTabsWidth + ImGui::GetIO().MouseDelta.x / scale,
+                                                      120.0f, 600.0f);
+    if (ImGui::IsItemHovered() || ImGui::IsItemActive())
+        {
+        const ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+        ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(a.x + handle * 0.35f, a.y), ImVec2(b.x - handle * 0.35f, b.y),
+                                                  WithAlpha(kFolderRed, 160));
+        }
+    ImGui::SameLine(0.0f, 0.0f);
 }
 
 // The first pane (leaf node) under `node`, other than `skip`, holding a

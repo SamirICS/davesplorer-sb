@@ -22,8 +22,6 @@ namespace ui
 namespace
 {
 
-constexpr ImU32 kFolderRed = IM_COL32(214, 52, 52, 255);   // the app icon's red
-
 void JumpTo(app::AppState& state, UiState& ui, const std::string& path, bool newView)
 {
     if (newView)

@@ -1,6 +1,7 @@
 // The Settings menu on the menu bar, and the Settings window it opens: the
 // options that are not about how one view looks.
 #include "ui/MainWindow.h"
+#include "ui/Fonts.h"
 #include "ui/Theme.h"
 #include "ui/Widgets.h"
 
@@ -33,6 +34,22 @@ void SectionHeading(const char* text)
     ImGui::SeparatorText(text);
 }
 
+// Text sizes the menu offers, in pixels before zoom.
+struct SizePreset
+{
+    const char* name;
+    float       px;
+};
+const SizePreset kSizePresets[] = {
+    { "Small", 15.0f }, { "Normal", fonts::kDefaultSize }, { "Large", 21.0f }, { "Larger", 24.0f }, { "Largest", 28.0f },
+};
+
+void FontFamilyItems(app::Settings& s)
+{
+    for (const std::string& family : fonts::Families())
+        if (ImGui::MenuItem(family.c_str(), nullptr, s.fontFamily == family)) s.fontFamily = family;
+}
+
 } // namespace
 
 std::string MoveOriginalsLabel(const app::Settings& s)
@@ -50,6 +67,18 @@ void DrawSettingsMenu(app::AppState& state, UiState& ui)
     ImGui::Separator();
 #endif
     ImGui::MenuItem("Vertical tabs", nullptr, &s.verticalTabs);
+    ImGui::Separator();
+    if (ImGui::BeginMenu("Text size"))
+        {
+        for (const SizePreset& p : kSizePresets)
+            if (ImGui::MenuItem(p.name, nullptr, s.fontSize == p.px)) s.fontSize = p.px;
+        ImGui::EndMenu();
+        }
+    if (ImGui::BeginMenu("Font", !fonts::Families().empty()))
+        {
+        FontFamilyItems(s);
+        ImGui::EndMenu();
+        }
     ImGui::Separator();
     if (ImGui::MenuItem("All settings...")) ui.showSettings = true;
     ImGui::EndMenu();
@@ -76,6 +105,26 @@ void DrawSettingsWindow(app::AppState& state, UiState& ui)
         ui.settingsFolderText = s.originalsFolder;
         ui.settingsFolderError.clear();
         }
+
+    SectionHeading("Appearance");
+    ImGui::TextUnformatted("Font");
+    ImGui::SameLine(Scaled(110.0f));
+    ImGui::SetNextItemWidth(Scaled(220.0f));
+    if (ImGui::BeginCombo("##fontfamily", s.fontFamily.c_str()))
+        {
+        for (const std::string& family : fonts::Families())
+            if (ImGui::Selectable(family.c_str(), s.fontFamily == family)) s.fontFamily = family;
+        ImGui::EndCombo();
+        }
+    ImGui::TextUnformatted("Text size");
+    ImGui::SameLine(Scaled(110.0f));
+    ImGui::SetNextItemWidth(Scaled(220.0f));
+    int px = (int)s.fontSize;
+    if (ImGui::SliderInt("##fontsize", &px, (int)fonts::kMinSize, (int)fonts::kMaxSize, "%d px"))
+        s.fontSize = (float)px;
+    ImGui::SameLine();
+    if (ImGui::Button("Reset##fontsize")) s.fontSize = fonts::kDefaultSize;
+    MutedText("Zoom (Ctrl + mouse wheel) scales everything else as well.");
 
 #ifdef __linux__
     SectionHeading("Extracting archives");

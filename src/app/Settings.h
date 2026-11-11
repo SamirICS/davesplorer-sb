@@ -63,7 +63,9 @@ struct Settings
     bool  moveOriginals = false;   // put an archive away once it is unpacked...
     std::string originalsFolder = "zipped-originals";   // ...into a folder of this name beside it
     bool  verticalTabs = false;    // each pane lists its views down its left side instead of in a row on top
-    float verticalTabsWidth = 190.0f;   // that column, in unscaled pixels
+    float verticalTabsWidth = 260.0f;   // that column, in unscaled pixels
+    std::string fontFamily = "Open Sans";   // the interface face, by name
+    float fontSize = 18.0f;        // base text size in pixels, before zoom and DPI
     ViewMode viewMode = ViewMode::Details;   // what a new view starts as
     int   thumbnailSize = 96;      // unscaled pixels, one of kThumbnailSizes
     std::string startPath;         // where the first tab opens; "" is This PC

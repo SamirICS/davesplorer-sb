@@ -234,7 +234,16 @@ entry is greyed out everywhere else, including KDE Plasma, Windows and macOS.
   tab in that pane, the way Directory Opus shows folder tabs. A split
   gives each half its own column. Click to switch, drag a tab onto another
   to reorder, middle-click or right-click to close; the column's width is
-  dragged at its edge and remembered.
+  dragged at its edge and remembered. Folder tabs carry the shortcut bar's
+  red folder, in larger type than the rest of the interface.
+- **Font and text size** (Settings menu, or Appearance in the Settings
+  window): Open Sans, which ships with the app, or Ubuntu, Noto Sans,
+  DejaVu Sans, Liberation Sans or Fira Code where installed, at 12 to 30
+  pixels. This sizes the text only; zoom (Ctrl + mouse wheel) still scales
+  everything.
+- **Settings are saved as they change**, within half a second and by
+  writing a new file and renaming it over the old one, so a crash, a kill
+  or a second window closing later keeps them; not only at a clean exit.
 - **Context menus** on items and on the empty area, plus "Show in Windows
   Explorer" and "Open terminal here". Each view's status bar also has New
   folder, Open terminal and Open in Windows Explorer buttons at its right

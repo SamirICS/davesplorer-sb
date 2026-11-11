@@ -292,8 +292,10 @@ int RunApplication(int argc, char** argv)
         // Between frames only: ScaleAllSizes is not idempotent and a
         // mid-frame metric change leaves the rest of the frame inconsistent.
         ui::PumpAppearance(state.settings.themeIndex, state.settings.uiScale, uiState.dpiScale);
+        ui::fonts::Apply(state.settings.fontFamily, state.settings.fontSize);
 
         app::TickAppState(state);
+        app::SaveAppStateIfChanged(state);
 
         ImGui_ImplSDLRenderer3_NewFrame();
         ImGui_ImplSDL3_NewFrame();

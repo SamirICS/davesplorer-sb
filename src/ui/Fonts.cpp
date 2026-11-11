@@ -2,6 +2,9 @@
 #include "ui/IconsMaterialDesign.h"
 #include "platform/FileSystem.h"
 
+#include <algorithm>
+#include <vector>
+
 namespace ui::fonts
 {
 
@@ -10,6 +13,8 @@ namespace
 
 ImFont* g_ui = nullptr;
 ImFont* g_bold = nullptr;
+ImFont* g_bundledUi = nullptr;     // Open Sans, the fallback for any family
+ImFont* g_bundledBold = nullptr;
 ImFont* g_italic = nullptr;
 ImFont* g_mono = nullptr;
 float   g_size = 18.0f;
@@ -46,6 +51,31 @@ void MergeIcons(ImGuiIO& io, const std::string& file, float size)
     io.Fonts->AddFontFromFileTTF(file.c_str(), size, &cfg, kIconRanges);
 }
 
+// Families looked for on the system, regular face first then bold.
+struct SystemFamily
+{
+    const char* name;
+    const char* regular;
+    const char* bold;
+};
+const SystemFamily kSystemFamilies[] = {
+    { "Ubuntu",          "/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf",            "/usr/share/fonts/truetype/ubuntu/Ubuntu-B.ttf" },
+    { "Noto Sans",       "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",      "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf" },
+    { "DejaVu Sans",     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",          "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" },
+    { "Liberation Sans", "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+                         "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf" },
+    { "Fira Code",       nullptr, nullptr },   // the bundled monospace face, as the interface face
+};
+
+struct LoadedFamily
+{
+    std::string name;
+    ImFont*     regular = nullptr;
+    ImFont*     bold = nullptr;
+};
+std::vector<LoadedFamily> g_families;
+std::vector<std::string>  g_familyNames;
+
 } // namespace
 
 bool Load(const std::string& assetsDir, float sizePx, std::string& error)
@@ -74,8 +104,47 @@ bool Load(const std::string& assetsDir, float sizePx, std::string& error)
     g_mono = AddText(io, dir + "FiraCode-Regular.ttf", sizePx);
     if (!g_mono) g_mono = g_ui;
 
+    g_bundledUi = g_ui;
+    g_bundledBold = g_bold;
+    g_families.push_back({ kDefaultFamily, g_ui, g_bold });
+    for (const SystemFamily& f : kSystemFamilies)
+        {
+        if (!f.regular)
+            {
+            if (g_mono != g_ui) g_families.push_back({ f.name, g_mono, g_mono });
+            continue;
+            }
+        ImFont* regular = AddText(io, f.regular, sizePx);
+        if (!regular) continue;
+        MergeIcons(io, icons, sizePx);
+        ImFont* bold = AddText(io, f.bold, sizePx);
+        if (bold) MergeIcons(io, icons, sizePx);
+        g_families.push_back({ f.name, regular, bold ? bold : regular });
+        }
+    for (const LoadedFamily& f : g_families) g_familyNames.push_back(f.name);
+
     io.FontDefault = g_ui;
     return true;
+}
+
+const std::vector<std::string>& Families()
+{
+    return g_familyNames;
+}
+
+void Apply(const std::string& family, float sizePx)
+{
+    if (g_families.empty()) return;   // the built-in font: nothing to choose between
+    const LoadedFamily* chosen = &g_families.front();
+    for (const LoadedFamily& f : g_families)
+        if (f.name == family) chosen = &f;
+    g_ui = chosen->regular;
+    g_bold = chosen->bold;
+    ImGui::GetIO().FontDefault = g_ui;
+    g_size = std::clamp(sizePx, kMinSize, kMaxSize);
+    // Taken up as the next frame starts; FontSizeBase itself is rewritten
+    // from the font stack, so setting it directly does not last.
+    if (ImGui::GetStyle().FontSizeBase != g_size) ImGui::GetStyle()._NextFrameFontSizeBase = g_size;
 }
 
 ImFont* Ui()     { return g_ui; }

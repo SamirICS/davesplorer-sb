@@ -1808,8 +1808,8 @@ void RegisterTests(ImGuiTestEngine* e)
 
         // Back to the first, by its entry in the column.
         ctx->SetRef(ImGuiTestRef(ui::ViewWindowId(secondId)));
-        const std::string label = std::string("**/" ICON_MD_FOLDER "  ") + app::PathName(fx.root);
-        ctx->ItemClick(ImGuiTestRef(label.c_str()));
+        const std::string row = "**/##panetab" + std::to_string(first->ID);
+        ctx->ItemClick(ImGuiTestRef(row.c_str()));
         ctx->Yield(3);
         IM_CHECK(first->DockNode->Windows[0] == first);
         IM_CHECK_EQ(fx.state.active().id, firstId);
@@ -1892,6 +1892,27 @@ void RegisterTests(ImGuiTestEngine* e)
             }
         fx.state.settings.verticalTabs = false;
         ctx->Yield(3);
+    };
+
+    // Font family and text size, as the Settings window sets them.
+    t = IM_REGISTER_TEST(e, "explorer", "font_family_and_size_apply");
+    t->TestFunc = [](ImGuiTestContext* ctx) {
+        IM_CHECK(!ui::fonts::Families().empty());
+        IM_CHECK_STR_EQ(ui::fonts::Families()[0].c_str(), ui::fonts::kDefaultFamily);
+        ImFont* openSans = ui::fonts::Ui();
+        ui::fonts::Apply(ui::fonts::kDefaultFamily, 24.0f);
+        ctx->Yield(2);
+        IM_CHECK_EQ(ImGui::GetStyle().FontSizeBase, 24.0f);
+        IM_CHECK_EQ(ImGui::GetIO().FontDefault, openSans);
+        ui::fonts::Apply("Fira Code", 24.0f);   // bundled, so always there
+        ctx->Yield(2);
+        IM_CHECK(ImGui::GetIO().FontDefault == ui::fonts::Mono());
+        ui::fonts::Apply("No Such Font", 99.0f);   // unknown: Open Sans, clamped size
+        ctx->Yield(2);
+        IM_CHECK(ImGui::GetIO().FontDefault == openSans);
+        IM_CHECK_EQ(ImGui::GetStyle().FontSizeBase, ui::fonts::kMaxSize);
+        ui::fonts::Apply(ui::fonts::kDefaultFamily, ui::fonts::kDefaultSize);
+        ctx->Yield(2);
     };
 
     // Double-click asks; Extract here unpacks beside the archive.

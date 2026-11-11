@@ -34,6 +34,7 @@ void InitAppState(AppState& state, const std::string& exeDir, const std::string&
     state.layoutFile   = JoinPath(configDir.empty() ? exeDir : configDir, "imgui.ini");
     state.layoutsDir   = JoinPath(configDir.empty() ? exeDir : configDir, "layouts");
     LoadSettings(state.settingsFile, state.settings);
+    state.savedSettingsText = SerializeSettings(state.settings);
 
     state.quickAccess = platform::GetKnownFolders();
     state.drives      = platform::GetDrives();
@@ -138,7 +139,11 @@ bool ApplyStartArgument(AppState& state, const std::string& argument)
     return !folder.empty();
 }
 
-void SaveAppState(AppState& state)
+namespace
+{
+
+// What the settings file should say about the session as it is now.
+void GatherSessionSettings(AppState& state)
 {
     if (state.settings.rememberLastPath && !state.tabs.empty())
         state.settings.startPath = state.active().path;
@@ -148,8 +153,29 @@ void SaveAppState(AppState& state)
     for (const PinnedView& pin : state.unavailablePins)
         state.settings.pinnedViews.push_back(pin);
     state.settings.programsRoot = state.programViews.empty() ? std::string() : state.programViews.back().root;
+}
+
+} // namespace
+
+void SaveAppState(AppState& state)
+{
+    GatherSessionSettings(state);
     std::string error;
-    SaveSettings(state.settingsFile, state.settings, error);
+    if (SaveSettings(state.settingsFile, state.settings, error)) state.savedSettingsText = SerializeSettings(state.settings);
+}
+
+bool SaveAppStateIfChanged(AppState& state)
+{
+    const auto now = std::chrono::steady_clock::now();
+    if (now < state.settingsCheckAt) return false;
+    state.settingsCheckAt = now + std::chrono::milliseconds(500);
+    GatherSessionSettings(state);
+    std::string text = SerializeSettings(state.settings);
+    if (text == state.savedSettingsText) return false;
+    std::string error;
+    if (!SaveSettings(state.settingsFile, state.settings, error)) return false;
+    state.savedSettingsText = std::move(text);
+    return true;
 }
 
 void SetPinned(AppState& state, int index, bool pinned)

@@ -80,6 +80,11 @@ struct AppState
 
     std::vector<UndoEntry> undoHistory;   // newest last, at most kUndoDepth
 
+    // What settings.ini held when last written, so a change is saved
+    // within moments rather than only at a clean exit.
+    std::string savedSettingsText;
+    std::chrono::steady_clock::time_point settingsCheckAt{};
+
     std::string statusMessage;   // transient note for the status bar
     std::string viewOnStart;     // a file named on the command line that the built-in viewer shows
     bool quitRequested = false;
@@ -101,6 +106,11 @@ bool ApplyStartArgument(AppState& state, const std::string& argument);
 // Writes settings, the pinned views among them; the last path of the active
 // tab is remembered when the user asked for that.
 void SaveAppState(AppState& state);
+
+// Every half second at most: writes the settings if they differ from what
+// was last written. A crash, a kill or a second window closing later then
+// loses nothing changed more than a moment ago. Returns true when it wrote.
+bool SaveAppStateIfChanged(AppState& state);
 
 // Pins a view so it reopens at the next launch, or takes the pin off.
 // Written to the settings at once, as the shortcut bar is.

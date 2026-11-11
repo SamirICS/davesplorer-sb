@@ -11,6 +11,9 @@
 namespace ui
 {
 
+// The app icon's red: pinned folders on the shortcut bar, folder tabs.
+inline constexpr ImU32 kFolderRed = IM_COL32(214, 52, 52, 255);
+
 struct ThemeTokens
 {
     const char* name;

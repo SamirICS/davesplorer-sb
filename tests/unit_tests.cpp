@@ -655,6 +655,8 @@ void TestSettings()
     s.originalsFolder = "old zips";
     s.verticalTabs = true;
     s.verticalTabsWidth = 240.0f;
+    s.fontFamily = "Noto Sans";
+    s.fontSize = 22.0f;
 
     app::Settings back;
     const std::string text = app::SerializeSettings(s);
@@ -678,6 +680,12 @@ void TestSettings()
     CHECK_EQ(back.originalsFolder, std::string("old zips"));
     CHECK(back.verticalTabs);
     CHECK(back.verticalTabsWidth > 239.0f && back.verticalTabsWidth < 241.0f);
+    CHECK_EQ(back.fontFamily, std::string("Noto Sans"));
+    CHECK_EQ(back.fontSize, 22.0f);
+    app::ApplySettingLine(back, "font_size", "200");   // out of range: the default
+    CHECK_EQ(back.fontSize, 18.0f);
+    app::ApplySettingLine(back, "vertical_tabs_width", "190");   // the old default reads as the new one
+    CHECK_EQ(back.verticalTabsWidth, 260.0f);
     app::ApplySettingLine(back, "originals_folder", "a/b");   // not a name: ignored
     CHECK_EQ(back.originalsFolder, std::string("old zips"));
 
@@ -1543,6 +1551,27 @@ void TestAppState()
     CHECK(!state.drives.empty());
     CHECK(!state.quickAccess.empty());
     CHECK_EQ(state.settingsFile, app::JoinPath(tmp.path, "settings.ini"));
+
+    // A change is written within moments, once, and atomically: a run that
+    // ends without a clean exit keeps it.
+    {
+    state.settingsCheckAt = {};
+    app::SaveAppStateIfChanged(state);   // whatever start-up settled on
+    state.settingsCheckAt = {};
+    CHECK(!app::SaveAppStateIfChanged(state));   // nothing new
+    state.settings.fontSize = 24.0f;
+    state.settings.fontFamily = "Ubuntu";
+    CHECK(!app::SaveAppStateIfChanged(state));   // too soon after the last look
+    state.settingsCheckAt = {};
+    CHECK(app::SaveAppStateIfChanged(state));
+    CHECK(!platform::PathExists(state.settingsFile + ".tmp"));
+    app::Settings reread;
+    CHECK(app::LoadSettings(state.settingsFile, reread));
+    CHECK_EQ(reread.fontSize, 24.0f);
+    CHECK_EQ(reread.fontFamily, std::string("Ubuntu"));
+    state.settingsCheckAt = {};
+    CHECK(!app::SaveAppStateIfChanged(state));
+    }
 
     const int second = app::OpenTab(state, "");
     CHECK_EQ(second, 1);
