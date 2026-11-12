@@ -6,6 +6,7 @@
 #include "app/GitRemote.h"
 #include "imgui.h"
 
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -238,6 +239,11 @@ struct UiState
     bool        fileDialogOpen = false;    // one is up; the menu items wait
     std::string layoutToOpen;
     std::string layoutToSave;
+    // Last run's views, reopened on the first frame; and what the session
+    // file last held, so it is written only when the layout changes.
+    std::string sessionToRestore;
+    std::string savedSessionText;
+    std::chrono::steady_clock::time_point sessionCheckAt{};
     // Vertical tabs: what the pane columns asked for while being drawn,
     // done once every window has been (each would move state.tabs).
     struct PaneNewTab

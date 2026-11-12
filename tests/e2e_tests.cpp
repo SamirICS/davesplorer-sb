@@ -50,6 +50,7 @@
 #include <thread>
 #include <cstdlib>
 #include <fstream>
+#include <functional>
 #include <string>
 
 namespace
@@ -1913,6 +1914,76 @@ void RegisterTests(ImGuiTestEngine* e)
         IM_CHECK_EQ(ImGui::GetStyle().FontSizeBase, ui::fonts::kMaxSize);
         ui::fonts::Apply(ui::fonts::kDefaultFamily, ui::fonts::kDefaultSize);
         ctx->Yield(2);
+    };
+
+    // The session: two panes, the right one with two tabs and the first of
+    // them in front, written out and brought back as a next start would.
+    t = IM_REGISTER_TEST(e, "explorer", "session_saved_and_restored");
+    t->TestFunc = [](ImGuiTestContext* ctx) {
+        Fixture& fx = *g_fx;
+        GoToScratch(ctx, fx);
+        fx.state.settings.verticalTabs = true;
+        ctx->Yield(3);
+        ctx->SetRef(ui::kHostWindow);
+        ctx->MenuClick("View/Split view right");
+        ctx->Yield(4);
+        IM_CHECK_EQ(fx.state.tabs.size(), (size_t)2);
+        const int rightId = fx.state.tabs[1].id;
+        ImGuiWindow* rightWin = ViewWindow(ctx, rightId);
+        ui::OpenView(fx.state, fx.ui, app::JoinPath(fx.root, "sub"), rightWin->DockNode->ID);
+        ctx->Yield(5);
+        IM_CHECK_EQ(fx.state.tabs.size(), (size_t)3);
+        fx.ui.view(rightId).wantFocus = true;
+        ctx->Yield(4);
+        IM_CHECK(rightWin->DockNode->Windows[0] == rightWin);
+
+        std::string error;
+        platform::DeletePermanently({ fx.state.sessionFile }, error);
+        IM_CHECK(ui::SaveSessionIfChanged(fx.state, fx.ui, true));
+        IM_CHECK(platform::PathExists(fx.state.sessionFile));
+        IM_CHECK(!ui::SaveSessionIfChanged(fx.state, fx.ui, true));   // unchanged: not written again
+
+        // Next start: whatever is open gives way to the session.
+        GoToScratch(ctx, fx);
+        fx.state.settings.verticalTabs = true;
+        fx.ui.sessionToRestore = fx.state.sessionFile;
+        ctx->Yield(8);
+        IM_CHECK_EQ(fx.state.tabs.size(), (size_t)3);
+        IM_CHECK_STR_EQ(app::PathName(fx.state.tabs[2].path).c_str(), "sub");
+        ImGuiWindow* left = ViewWindow(ctx, fx.state.tabs[0].id);
+        ImGuiWindow* right = ViewWindow(ctx, fx.state.tabs[1].id);
+        ImGuiWindow* sub = ViewWindow(ctx, fx.state.tabs[2].id);
+        IM_CHECK(left->DockNode != nullptr && right->DockNode != nullptr);
+        IM_CHECK(left->DockNode != right->DockNode);
+        IM_CHECK(sub->DockNode == right->DockNode);
+        IM_CHECK(right->DockNode->Windows[0] == right);   // the tab that was in front still is
+        IM_CHECK(right->Pos.x > left->Pos.x);
+
+        fx.state.settings.verticalTabs = false;
+        platform::DeletePermanently({ fx.state.sessionFile }, error);
+        ctx->Yield(3);
+    };
+
+    // A pane holding only a viewer is left out of a layout rather than
+    // coming back empty.
+    t = IM_REGISTER_TEST(e, "explorer", "layout_leaves_out_viewer_panes");
+    t->TestFunc = [](ImGuiTestContext* ctx) {
+        Fixture& fx = *g_fx;
+        GoToScratch(ctx, fx);
+        ui::OpenFileView(fx.state, fx.ui, app::JoinPath(fx.root, "beta.md"));
+        ctx->Yield(8);
+        IM_CHECK_EQ(fx.state.fileViews.size(), (size_t)1);
+        const app::Layout layout = ui::CaptureLayout(fx.state, fx.ui);
+        std::function<bool(const app::LayoutNode&)> allFilled = [&](const app::LayoutNode& n) {
+            if (n.split == app::LayoutSplit::None) return n.nav || !n.views.empty();
+            for (const app::LayoutNode& c : n.children)
+                if (!allFilled(c)) return false;
+            return true;
+        };
+        IM_CHECK(allFilled(layout.root));
+        IM_CHECK_EQ(layout.views.size(), (size_t)1);
+        fx.state.fileViews.clear();
+        ctx->Yield(3);
     };
 
     // Double-click asks; Extract here unpacks beside the archive.

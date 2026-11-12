@@ -52,6 +52,7 @@ struct AppState
     std::string settingsFile;
     std::string layoutFile;      // imgui.ini beside the exe
     std::string layoutsDir;      // where File > Save layout suggests saving
+    std::string sessionFile;     // the views and splits as last left, reopened at start
     std::string currentLayout;   // the layout file last opened or saved; File > Save layout writes it again
 
     std::vector<Tab> tabs;

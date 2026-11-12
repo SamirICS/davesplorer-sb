@@ -657,6 +657,7 @@ void TestSettings()
     s.verticalTabsWidth = 240.0f;
     s.fontFamily = "Noto Sans";
     s.fontSize = 22.0f;
+    s.restoreSession = false;
 
     app::Settings back;
     const std::string text = app::SerializeSettings(s);
@@ -682,6 +683,8 @@ void TestSettings()
     CHECK(back.verticalTabsWidth > 239.0f && back.verticalTabsWidth < 241.0f);
     CHECK_EQ(back.fontFamily, std::string("Noto Sans"));
     CHECK_EQ(back.fontSize, 22.0f);
+    CHECK(!back.restoreSession);
+    CHECK(app::Settings{}.restoreSession);   // on unless turned off
     app::ApplySettingLine(back, "font_size", "200");   // out of range: the default
     CHECK_EQ(back.fontSize, 18.0f);
     app::ApplySettingLine(back, "vertical_tabs_width", "190");   // the old default reads as the new one

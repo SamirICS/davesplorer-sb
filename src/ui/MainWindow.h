@@ -98,8 +98,13 @@ bool DrawProgramsView(app::AppState& state, UiState& ui, int index);
 // do once the file is chosen.
 app::Layout CaptureLayout(const app::AppState& state, const UiState& ui);
 void ApplyLayout(app::AppState& state, UiState& ui, const app::Layout& layout, ImVec2 size);
-// Opens or saves whatever the file dialog (or Recent layouts) asked for.
+// Opens or saves whatever the file dialog (or Recent layouts) asked for,
+// and reopens last run's session.
 void HandleLayoutRequests(app::AppState& state, UiState& ui, ImVec2 size);
+// About once a second (or now, with force): writes the session file when
+// the views or splits changed since it was last written, so the next start
+// can reopen them however this run ends. Returns true when it wrote.
+bool SaveSessionIfChanged(app::AppState& state, UiState& ui, bool force);
 
 // Requests used by more than one pane.
 void RequestDialog(UiState& ui, Dialog which, const std::string& title = {});

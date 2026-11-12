@@ -1,4 +1,5 @@
 #include "app/AppState.h"
+#include "app/Layout.h"
 #include "app/Image.h"
 #include "app/Listing.h"
 #include "app/Navigation.h"
@@ -33,6 +34,7 @@ void InitAppState(AppState& state, const std::string& exeDir, const std::string&
     state.settingsFile = JoinPath(configDir.empty() ? exeDir : configDir, "settings.ini");
     state.layoutFile   = JoinPath(configDir.empty() ? exeDir : configDir, "imgui.ini");
     state.layoutsDir   = JoinPath(configDir.empty() ? exeDir : configDir, "layouts");
+    state.sessionFile  = JoinPath(configDir.empty() ? exeDir : configDir, std::string("session.") + kLayoutExtension);
     LoadSettings(state.settingsFile, state.settings);
     state.savedSettingsText = SerializeSettings(state.settings);
 

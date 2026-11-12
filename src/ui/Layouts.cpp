@@ -10,6 +10,8 @@
 #include "imgui_internal.h"
 
 #include <algorithm>
+#include <chrono>
+#include <filesystem>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -64,6 +66,24 @@ void CaptureNode(const ImGuiDockNode* node, const std::unordered_map<ImGuiID, in
         out.views.push_back(it->second);
         if (node->SelectedTabId == w->TabId) out.selected = it->second;
         }
+}
+
+// A pane that held only what layouts leave out (image and document
+// viewers, a Programs window) would come back as an empty area: its split
+// gives way to the other side. True when nothing is left of `node`.
+bool PruneEmpty(app::LayoutNode& node)
+{
+    if (node.split == app::LayoutSplit::None || node.children.size() != 2)
+        return !node.nav && node.views.empty();
+    const bool firstEmpty = PruneEmpty(node.children[0]);
+    const bool secondEmpty = PruneEmpty(node.children[1]);
+    if (firstEmpty && secondEmpty) return true;
+    if (firstEmpty || secondEmpty)
+        {
+        app::LayoutNode kept = std::move(node.children[firstEmpty ? 1 : 0]);
+        node = std::move(kept);
+        }
+    return false;
 }
 
 bool HasNav(const app::LayoutNode& node)
@@ -129,6 +149,7 @@ app::Layout CaptureLayout(const app::AppState& state, const UiState& ui)
     layout.active = std::clamp(state.activeTab, 0, std::max(0, (int)state.tabs.size() - 1));
     if (const ImGuiDockNode* root = ImGui::DockBuilderGetNode(ui.dockspaceId))
         CaptureNode(root, viewByWindow, layout.root);
+    PruneEmpty(layout.root);
     return layout;
 }
 
@@ -184,7 +205,12 @@ void ApplyLayout(app::AppState& state, UiState& ui, const app::Layout& layout, I
     // this is set on the node the way loading imgui.ini sets it, and the
     // tab bar honours it when they arrive.
     for (const auto& [node, window] : builder.selections)
+        {
         if (ImGuiDockNode* n = ImGui::DockBuilderGetNode(node)) n->SelectedTabId = TabIdOf(window);
+        // With vertical tabs a pane shows its first window, not its
+        // selected tab: the one in front is moved there once docked.
+        ui.paneFrontPending.insert(window);
+        }
 
     state.activeTab = std::clamp(layout.active, 0, (int)state.tabs.size() - 1);
     ui.view(state.active().id).wantFocus = true;
@@ -193,8 +219,46 @@ void ApplyLayout(app::AppState& state, UiState& ui, const app::Layout& layout, I
         state.statusMessage = std::to_string(missing) + (missing == 1 ? " folder" : " folders") + " in the layout no longer exist; shown as This PC";
 }
 
+bool SaveSessionIfChanged(app::AppState& state, UiState& ui, bool force)
+{
+    const auto now = std::chrono::steady_clock::now();
+    if (!force && now < ui.sessionCheckAt) return false;
+    ui.sessionCheckAt = now + std::chrono::seconds(1);
+    // Not before last run's session is back, or this run's first frame
+    // would be written over it.
+    if (!ui.sessionToRestore.empty() || state.sessionFile.empty() || ui.dockspaceId == 0) return false;
+    if (ImGui::DockBuilderGetNode(ui.dockspaceId) == nullptr) return false;
+    const app::Layout layout = CaptureLayout(state, ui);
+    std::string text = app::SerializeLayout(layout);
+    if (text == ui.savedSessionText) return false;
+    // Written beside and renamed over, so the file is never half written.
+    const std::string temp = state.sessionFile + ".tmp";
+    std::string error;
+    if (!app::SaveLayoutFile(temp, layout, error)) return false;
+    std::error_code ec;
+    std::filesystem::rename(std::filesystem::path(reinterpret_cast<const char8_t*>(temp.c_str())),
+                            std::filesystem::path(reinterpret_cast<const char8_t*>(state.sessionFile.c_str())), ec);
+    if (ec) return false;
+    ui.savedSessionText = std::move(text);
+    return true;
+}
+
 void HandleLayoutRequests(app::AppState& state, UiState& ui, ImVec2 size)
 {
+    if (!ui.sessionToRestore.empty())
+        {
+        // Last run's views. A missing or damaged file just leaves the
+        // usual start; it is not the user's to fix, so nothing is shown.
+        const std::string path = std::move(ui.sessionToRestore);
+        ui.sessionToRestore.clear();
+        app::Layout layout;
+        std::string error;
+        if (app::LoadLayoutFile(path, layout, error) && !layout.views.empty())
+            {
+            ApplyLayout(state, ui, layout, size);
+            ui.savedSessionText = app::SerializeLayout(layout);
+            }
+        }
     if (!ui.layoutToSave.empty())
         {
         const std::string path = std::move(ui.layoutToSave);

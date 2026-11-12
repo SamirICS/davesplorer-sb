@@ -52,6 +52,7 @@ void ApplySettingLine(Settings& s, const std::string& key, const std::string& va
         if (IsValidFileName(value, reason)) s.originalsFolder = value;
         }
     else if (key == "vertical_tabs")      s.verticalTabs = ParseBool(value);
+    else if (key == "restore_session")    s.restoreSession = ParseBool(value);
     else if (key == "font_family")        s.fontFamily = value;
     else if (key == "font_size")
         {
@@ -131,6 +132,7 @@ std::string SerializeSettings(const Settings& s)
     out << "move_originals=" << (s.moveOriginals ? 1 : 0) << '\n';
     out << "originals_folder=" << s.originalsFolder << '\n';
     out << "vertical_tabs=" << (s.verticalTabs ? 1 : 0) << '\n';
+    out << "restore_session=" << (s.restoreSession ? 1 : 0) << '\n';
     out << "vertical_tabs_width=" << s.verticalTabsWidth << '\n';
     out << "font_family=" << s.fontFamily << '\n';
     out << "font_size=" << s.fontSize << '\n';

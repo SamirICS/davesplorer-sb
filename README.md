@@ -241,6 +241,13 @@ entry is greyed out everywhere else, including KDE Plasma, Windows and macOS.
   DejaVu Sans, Liberation Sans or Fira Code where installed, at 12 to 30
   pixels. This sizes the text only; zoom (Ctrl + mouse wheel) still scales
   everything.
+- **Starts where you left off**: the views, their tabs, the splits and
+  which tab was in front come back at the next start, from a
+  `session.dslayout` written beside the settings whenever the layout
+  changes, so a crash or a kill keeps it too. Starting Davesplorer on a
+  folder opens that folder instead. Settings > All settings... > Starting
+  turns it off. Image and document viewers and Programs windows are left
+  out, as they are from saved layouts.
 - **Settings are saved as they change**, within half a second and by
   writing a new file and renaming it over the old one, so a crash, a kill
   or a second window closing later keeps them; not only at a clean exit.

@@ -222,6 +222,10 @@ int RunApplication(int argc, char** argv)
     ImGui_ImplSDL3_InitForSDLRenderer(window, renderer);
     ImGui_ImplSDLRenderer3_Init(renderer);
     if (!state.viewOnStart.empty()) ui::OpenFileView(state, uiState, state.viewOnStart);
+    // Last run's views and splits, unless a folder or file was named on
+    // the command line: then that is what was asked to be shown.
+    const bool startArgument = argc > 1 && argv[1] && argv[1][0] != '\0';
+    if (s.restoreSession && !startArgument && std::filesystem::exists(std::filesystem::path(reinterpret_cast<const char8_t*>(state.sessionFile.c_str())))) uiState.sessionToRestore = state.sessionFile;
     SDL_ShowWindow(window);
     InitDragOut(window);
 
@@ -301,6 +305,7 @@ int RunApplication(int argc, char** argv)
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
         ui::DrawFrame(state, uiState);
+        ui::SaveSessionIfChanged(state, uiState, false);
         // While a drag is out over other programs the window's cursor is
         // the drag's cursor (X11 shows it for the whole implicit grab), so
         // it says whether the program under it would take the drop.
@@ -343,6 +348,9 @@ int RunApplication(int argc, char** argv)
             if (!StartDragOut(paths, error)) state.statusMessage = error;
             }
         }
+
+    // The views as they were left, for the next start.
+    ui::SaveSessionIfChanged(state, uiState, true);
 
     // Window geometry goes back into settings so the next launch opens the
     // same way.

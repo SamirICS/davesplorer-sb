@@ -168,6 +168,10 @@ void DrawSettingsWindow(app::AppState& state, UiState& ui)
         s.archiveDoubleClick = (app::ArchiveDoubleClick)dc;
 #endif
 
+    SectionHeading("Starting");
+    ImGui::Checkbox("Reopen the views, tabs and splits from last time", &s.restoreSession);
+    MutedText("Opening Davesplorer on a folder starts with that folder instead.");
+
     SectionHeading("Tabs");
     ImGui::Checkbox("Vertical tabs: each pane lists its tabs down its left side", &s.verticalTabs);
 
