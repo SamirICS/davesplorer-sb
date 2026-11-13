@@ -864,7 +864,8 @@ void FollowLink(app::AppState& state, UiState& ui, app::FileView& view, Markdown
     if (std::filesystem::is_directory(p, ec))
         {
         // A folder opens in the folder view, the way the shell would.
-        if (!state.tabs.empty() && app::NavigateTo(state.active(), t.path, error)) ui.view(state.active().id).wantFocus = true;
+        if (!state.tabs.empty() && app::LockedAgainst(state.active(), t.path)) NavigateView(ui, state.active(), t.path);
+        else if (!state.tabs.empty() && app::NavigateTo(state.active(), t.path, error)) ui.view(state.active().id).wantFocus = true;
         else if (!error.empty()) ShowError(ui, error);
         return;
         }

@@ -31,6 +31,16 @@ void DrawFrame(app::AppState& state, UiState& ui);
 // (or into dockNode when given). Returns the new tab's index.
 int OpenView(app::AppState& state, UiState& ui, const std::string& path, ImGuiID dockNode = 0);
 
+// Takes a view to another folder, showing any error. A locked view keeps
+// its folder: the other one opens in a new view beside it instead, after
+// every window has been drawn, so the caller's tab reference stays good.
+// select names the entry to select there once it is listed.
+void NavigateView(UiState& ui, app::Tab& tab, const std::string& path, const std::string& select = {});
+// Back, Forward and Up the same way.
+void ViewBack(UiState& ui, app::Tab& tab);
+void ViewForward(UiState& ui, app::Tab& tab);
+void ViewUp(UiState& ui, app::Tab& tab);
+
 // Asks for a new view split off the given tab's dock node next frame.
 void RequestSplitView(UiState& ui, int tabId, ImGuiDir dir);
 
@@ -136,13 +146,22 @@ void TickExtract(app::AppState& state, UiState& ui);
 void DrawExtractDialogs(app::AppState& state, UiState& ui);
 
 // Vertical tabs, for every window that can sit in a pane with folder
-// views: the window class before Begin, the tab column and body after it
-// (true when a body was begun), and PaneEnd in place of ImGui::End().
-// The requests the columns made are carried out after all windows.
-void PaneBeforeBegin(const app::AppState& state);
+// views: PaneBegin in place of ImGui::Begin(), the tab column and body
+// after it (true when a body was begun), and PaneEnd in place of
+// ImGui::End().
+// The requests the columns made, and the new views locked views sent
+// folders to, are carried out after all windows.
+bool PaneBegin(const app::AppState& state, const char* name, bool* open, ImGuiWindowFlags flags);
 bool PaneAfterBegin(app::AppState& state, UiState& ui, bool visible, bool wantFront);
 void PaneEnd(bool body);
 void HandlePaneRequests(app::AppState& state, UiState& ui);
+// Horizontal tabs as tall, and in as large a type, as the vertical ones.
+// A dock node's tab bar takes its size from the font and frame padding in
+// force when DockSpace() runs, and a docked window leaves room for it by
+// those in force at its Begin(), so both calls go between these two (which
+// PaneBegin does for its window). Pass the window's name for a Begin().
+bool PushTabBarSize(const app::AppState& state, const char* window = nullptr);
+void PopTabBarSize(bool pushed);
 // ImGui never removes the dockspace's central node, so the main pane would
 // stay as a blank area once its last window closed. When it stays empty
 // while another pane holds views, that pane becomes the main one and the

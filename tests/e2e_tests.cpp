@@ -1821,6 +1821,98 @@ void RegisterTests(ImGuiTestEngine* e)
         IM_CHECK(first->DockNode != nullptr && first->DockNode->TabBar != nullptr);
     };
 
+    // A locked tab keeps its folder: opening a subfolder, Up, or a nav pane
+    // click gives a new tab straight after it in the same pane. Lock and
+    // Unlock are on the tab's right-click menu, in either kind of tab.
+    t = IM_REGISTER_TEST(e, "explorer", "locked_tab_opens_new_tabs");
+    t->TestFunc = [](ImGuiTestContext* ctx) {
+        Fixture& fx = *g_fx;
+        for (int vertical = 0; vertical < 2; ++vertical)
+            {
+            GoToScratch(ctx, fx);
+            fx.state.settings.verticalTabs = vertical == 1;
+            ctx->Yield(5);
+            const int lockedId = fx.state.active().id;
+            auto tabMenu = [&](const char* item) {
+                ImGuiWindow* w = ViewWindow(ctx, lockedId);
+                if (vertical)
+                    {
+                    ctx->SetRef(ImGuiTestRef(ui::ViewWindowId(fx.state.active().id)));
+                    ctx->ItemClick(ImGuiTestRef(("**/##panetab" + std::to_string(w->ID)).c_str()), ImGuiMouseButton_Right);
+                    }
+                else
+                    {
+                    ctx->ItemClick(ImGuiTestRef(w->TabId), ImGuiMouseButton_Right);
+                    }
+                ctx->Yield(2);
+                ctx->SetRef("//$FOCUSED");
+                ctx->ItemClick(item);
+                ctx->Yield(2);
+            };
+            tabMenu("Lock tab");
+            IM_CHECK(fx.state.tabs[(size_t)TabIndexOf(fx, lockedId)].locked);
+            IM_CHECK(std::string(ViewWindow(ctx, lockedId)->Name).rfind(ICON_MD_LOCK, 0) == 0);
+
+            const std::string sub = app::JoinPath(fx.root, "sub");
+            RefActiveView(ctx, fx);
+            ctx->ItemDoubleClick("**/###sub");
+            ctx->Yield(4);
+            IM_CHECK_EQ(fx.state.tabs.size(), (size_t)2);
+            IM_CHECK_STR_EQ(fx.state.tabs[0].path.c_str(), fx.root.c_str());
+            IM_CHECK_EQ(fx.state.tabs[0].id, lockedId);
+            IM_CHECK_STR_EQ(fx.state.tabs[1].path.c_str(), sub.c_str());
+            IM_CHECK(!fx.state.tabs[1].locked);
+            IM_CHECK_EQ(fx.state.active().id, fx.state.tabs[1].id);
+            IM_CHECK(ViewWindow(ctx, fx.state.tabs[1].id)->DockNode == ViewWindow(ctx, lockedId)->DockNode);
+
+            // The new tab is an ordinary one: it moves on in place.
+            RefActiveView(ctx, fx);
+            ctx->ItemDoubleClick("**/###deeper");
+            ctx->Yield(3);
+            IM_CHECK_EQ(fx.state.tabs.size(), (size_t)2);
+
+            // Up on the locked tab, back in front, lands between the two.
+            fx.ui.view(lockedId).wantFocus = true;
+            ctx->Yield(3);
+            RefActiveView(ctx, fx);
+            ctx->ItemClick("**/###Up");
+            ctx->Yield(4);
+            IM_CHECK_EQ(fx.state.tabs.size(), (size_t)3);
+            IM_CHECK_STR_EQ(fx.state.tabs[0].path.c_str(), fx.root.c_str());
+            IM_CHECK_STR_EQ(fx.state.tabs[1].path.c_str(), app::ParentPath(fx.root).c_str());
+            IM_CHECK_EQ(fx.state.active().id, fx.state.tabs[1].id);
+
+            // Unlocked, it moves again.
+            fx.ui.view(lockedId).wantFocus = true;
+            ctx->Yield(3);
+            tabMenu("Unlock tab");
+            IM_CHECK(!fx.state.tabs[0].locked);
+            RefActiveView(ctx, fx);
+            ctx->ItemDoubleClick("**/###sub");
+            ctx->Yield(3);
+            IM_CHECK_EQ(fx.state.tabs.size(), (size_t)3);
+            IM_CHECK_STR_EQ(fx.state.tabs[0].path.c_str(), sub.c_str());
+            }
+        fx.state.settings.verticalTabs = false;
+    };
+
+    // The row of tabs on top is as tall as a vertical tab, and the view's
+    // contents start below it.
+    t = IM_REGISTER_TEST(e, "explorer", "horizontal_tabs_match_vertical");
+    t->TestFunc = [](ImGuiTestContext* ctx) {
+        Fixture& fx = *g_fx;
+        GoToScratch(ctx, fx);
+        ctx->Yield(3);
+        ImGuiWindow* w = ViewWindow(ctx, fx.state.active().id);
+        IM_CHECK(w != nullptr && w->DockNode != nullptr && w->DockNode->TabBar != nullptr);
+        const ImGuiStyle& style = ImGui::GetStyle();
+        const float scale = style.FontScaleMain * style.FontScaleDpi;
+        const float row = style.FontSizeBase * scale * 1.45f + 12.0f * scale;
+        const float bar = w->DockNode->TabBar->BarRect.GetHeight();
+        IM_CHECK(bar > row - 1.5f && bar < row + 1.5f);
+        IM_CHECK(w->TitleBarHeight > bar - 0.5f && w->TitleBarHeight < bar + 0.5f);
+    };
+
     // Vertical tabs: closing the Programs window in front of a pane leaves
     // the folder view showing, not an empty pane.
     t = IM_REGISTER_TEST(e, "explorer", "vertical_tabs_close_programs_view");

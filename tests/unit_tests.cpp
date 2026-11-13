@@ -799,6 +799,26 @@ void TestNavigationAndListing()
     settings.showHidden = true;
     app::ApplyView(tab, settings);
     CHECK_EQ(tab.visible.size(), (size_t)8);
+
+    // A locked tab refreshes but goes nowhere else; Back, Forward and Up
+    // leave it where it is.
+    CHECK(app::NavigateTo(tab, sub, error));
+    app::GoBack(tab);
+    tab.locked = true;
+    CHECK(!app::LockedAgainst(tab, tmp.path));
+    CHECK(app::LockedAgainst(tab, sub));
+    CHECK(app::NavigateTo(tab, tmp.path + "/", error));   // the same folder, spelt differently
+    error.clear();
+    CHECK(!app::NavigateTo(tab, sub, error));
+    CHECK(!error.empty());
+    CHECK_EQ(tab.path, tmp.path);
+    app::GoForward(tab);
+    app::GoUp(tab);
+    CHECK_EQ(tab.path, tmp.path);
+    tab.locked = false;
+    CHECK(!app::LockedAgainst(tab, sub));
+    CHECK(app::NavigateTo(tab, sub, error));
+    CHECK_EQ(tab.path, sub);
 }
 
 void TestSelection()
@@ -1460,6 +1480,17 @@ void TestPinsAndLayouts()
     CHECK(parsed.root.children[1].children[0].views == std::vector<int>({ 0, 1 }));
     CHECK_EQ(parsed.root.children[1].children[0].selected, 1);
     CHECK(parsed.root.children[1].children[1].views == std::vector<int>({ 2 }));
+
+    // Locks ride in the same field as pins; a file written before locks
+    // reads as it did.
+    layout.views[0].locked = true;
+    layout.views[1].locked = true;
+    CHECK(app::ParseLayout(app::SerializeLayout(layout), parsed, error));
+    CHECK(parsed.views[0].pinned && parsed.views[0].locked);
+    CHECK(!parsed.views[1].pinned && parsed.views[1].locked);
+    CHECK(!parsed.views[2].pinned && !parsed.views[2].locked);
+    CHECK(app::ParseLayout("version=1\nview=1|0|/a\nview=0|0|/b\n", parsed, error));
+    CHECK(parsed.views[0].pinned && !parsed.views[0].locked && !parsed.views[1].locked);
 
     // Damaged files are refused with a reason, never half-applied.
     const std::string views = "version=1\nview=0|0|/a\nview=0|0|/b\n";

@@ -1,4 +1,4 @@
-// A saved layout: the folder views that were open, each with its pin, and
+// A saved layout: the folder views that were open, each with its pin and lock, and
 // how the window was split between them. Written as a small text file the
 // user names, so several arrangements can be kept and switched between.
 #pragma once
@@ -16,6 +16,7 @@ struct LayoutView
     std::string path;              // "" is This PC
     ViewMode    viewMode = ViewMode::Details;
     bool        pinned = false;
+    bool        locked = false;
 };
 
 enum class LayoutSplit

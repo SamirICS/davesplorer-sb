@@ -144,7 +144,7 @@ app::Layout CaptureLayout(const app::AppState& state, const UiState& ui)
     for (const app::Tab& tab : state.tabs)
         {
         viewByWindow[ViewWindowId(tab.id)] = (int)layout.views.size();
-        layout.views.push_back(app::LayoutView{ tab.path, tab.viewMode, tab.pinned });
+        layout.views.push_back(app::LayoutView{ tab.path, tab.viewMode, tab.pinned, tab.locked });
         }
     layout.active = std::clamp(state.activeTab, 0, std::max(0, (int)state.tabs.size() - 1));
     if (const ImGuiDockNode* root = ImGui::DockBuilderGetNode(ui.dockspaceId))
@@ -168,9 +168,11 @@ void ApplyLayout(app::AppState& state, UiState& ui, const app::Layout& layout, I
         // A folder that is gone opens on This PC rather than vanishing, so
         // the tree keeps its shape.
         app::Tab& tab = state.tabs[(size_t)app::OpenTab(state, v.path)];
-        if (tab.path != app::NormalizePath(v.path)) ++missing;
+        const bool found = tab.path == app::NormalizePath(v.path);
+        if (!found) ++missing;
         tab.viewMode = v.viewMode;
         tab.pinned = v.pinned;
+        tab.locked = v.locked && found;   // not to This PC in place of a folder that is gone
         }
     if (state.tabs.empty()) app::OpenTab(state, "");
 

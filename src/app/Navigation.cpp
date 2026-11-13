@@ -34,6 +34,11 @@ bool NavigateTo(Tab& tab, const std::string& rawPath, std::string& error)
                     : "Can't find '" + path + "'. Check the spelling and try again.";
         return false;
         }
+    if (tab.locked && path != tab.path)
+        {
+        error = "This tab is locked to '" + (tab.path.empty() ? std::string("This PC") : tab.path) + "'. Unlock it to go elsewhere.";
+        return false;
+        }
     // A forward branch is discarded once the user goes somewhere new, as in
     // every browser.
     if (tab.historyIndex >= 0 && tab.historyIndex + 1 < (int)tab.history.size())
@@ -48,27 +53,32 @@ bool NavigateTo(Tab& tab, const std::string& rawPath, std::string& error)
     return true;
 }
 
+bool LockedAgainst(const Tab& tab, const std::string& path)
+{
+    return tab.locked && NormalizePath(path) != tab.path;
+}
+
 bool CanGoBack(const Tab& tab) { return tab.historyIndex > 0; }
 bool CanGoForward(const Tab& tab) { return tab.historyIndex >= 0 && tab.historyIndex + 1 < (int)tab.history.size(); }
 bool CanGoUp(const Tab& tab) { return !tab.path.empty(); }
 
 void GoBack(Tab& tab)
 {
-    if (!CanGoBack(tab)) return;
+    if (tab.locked || !CanGoBack(tab)) return;
     --tab.historyIndex;
     SetLocation(tab, tab.history[(size_t)tab.historyIndex]);
 }
 
 void GoForward(Tab& tab)
 {
-    if (!CanGoForward(tab)) return;
+    if (tab.locked || !CanGoForward(tab)) return;
     ++tab.historyIndex;
     SetLocation(tab, tab.history[(size_t)tab.historyIndex]);
 }
 
 void GoUp(Tab& tab)
 {
-    if (!CanGoUp(tab)) return;
+    if (tab.locked || !CanGoUp(tab)) return;
     std::string ignored;
     NavigateTo(tab, ParentPath(tab.path), ignored);
 }

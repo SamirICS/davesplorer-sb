@@ -258,6 +258,16 @@ struct UiState
         int before = 0;   // ...to where this one is
         } paneMove;
     std::vector<ImGuiID>        paneClose;          // window ids
+    // Folders a locked view was asked to go to, each opened in a new view
+    // beside it once every window has been drawn.
+    struct LockedOpen
+        {
+        std::string path;
+        int         fromTab = 0;    // the locked view's tab id
+        ImGuiID     dockId = 0;
+        std::string select;         // entry to select once it is listed
+        };
+    std::vector<LockedOpen>     lockedOpens;
     std::unordered_set<ImGuiID> paneFrontPending;   // windows to put in front once docked
     int                         emptyMainPaneFrames = 0;   // how long the main pane has held nothing
 

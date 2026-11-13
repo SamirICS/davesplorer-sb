@@ -29,8 +29,7 @@ void JumpTo(app::AppState& state, UiState& ui, const std::string& path, bool new
         OpenView(state, ui, path);
         return;
         }
-    std::string error;
-    if (!app::NavigateTo(state.active(), path, error)) ShowError(ui, error);
+    NavigateView(ui, state.active(), path);
 }
 
 } // namespace

@@ -115,6 +115,43 @@ int OpenView(app::AppState& state, UiState& ui, const std::string& path, ImGuiID
     return index;
 }
 
+void NavigateView(UiState& ui, app::Tab& tab, const std::string& path, const std::string& select)
+{
+    std::string error;
+    if (!app::LockedAgainst(tab, path))
+        {
+        if (!app::NavigateTo(tab, path, error)) ShowError(ui, error);
+        return;
+        }
+    // A scratch tab says whether the folder is there, in the same words a
+    // plain navigation would.
+    app::Tab probe;
+    if (!app::NavigateTo(probe, path, error))
+        {
+        ShowError(ui, error);
+        return;
+        }
+    ui.lockedOpens.push_back({ probe.path, tab.id, ui.view(tab.id).dockId, select });
+}
+
+void ViewBack(UiState& ui, app::Tab& tab)
+{
+    if (tab.locked && app::CanGoBack(tab)) NavigateView(ui, tab, tab.history[(size_t)tab.historyIndex - 1]);
+    else app::GoBack(tab);
+}
+
+void ViewForward(UiState& ui, app::Tab& tab)
+{
+    if (tab.locked && app::CanGoForward(tab)) NavigateView(ui, tab, tab.history[(size_t)tab.historyIndex + 1]);
+    else app::GoForward(tab);
+}
+
+void ViewUp(UiState& ui, app::Tab& tab)
+{
+    if (tab.locked && app::CanGoUp(tab)) NavigateView(ui, tab, app::ParentPath(tab.path));
+    else app::GoUp(tab);
+}
+
 void RequestSplitView(UiState& ui, int tabId, ImGuiDir dir)
 {
     ui.splitRequest.tabId = tabId;
@@ -434,14 +471,13 @@ void DrawMenuBar(app::AppState& state, UiState& ui)
 
     if (ImGui::BeginMenu("Go"))
         {
-        if (ImGui::MenuItem("Back", "Alt+Left", false, app::CanGoBack(tab))) app::GoBack(tab);
-        if (ImGui::MenuItem("Forward", "Alt+Right", false, app::CanGoForward(tab))) app::GoForward(tab);
-        if (ImGui::MenuItem("Up", "Alt+Up", false, app::CanGoUp(tab))) app::GoUp(tab);
+        if (ImGui::MenuItem("Back", "Alt+Left", false, app::CanGoBack(tab))) ViewBack(ui, tab);
+        if (ImGui::MenuItem("Forward", "Alt+Right", false, app::CanGoForward(tab))) ViewForward(ui, tab);
+        if (ImGui::MenuItem("Up", "Alt+Up", false, app::CanGoUp(tab))) ViewUp(ui, tab);
         ImGui::Separator();
-        std::string error;
-        if (ImGui::MenuItem("This PC")) app::NavigateTo(tab, "", error);
+        if (ImGui::MenuItem("This PC")) NavigateView(ui, tab, "");
         for (const platform::KnownFolder& kf : state.quickAccess)
-            if (ImGui::MenuItem(kf.name.c_str())) app::NavigateTo(tab, kf.path, error);
+            if (ImGui::MenuItem(kf.name.c_str())) NavigateView(ui, tab, kf.path);
         ImGui::EndMenu();
         }
 
@@ -501,9 +537,9 @@ void HandleGlobalShortcuts(app::AppState& state, UiState& ui)
 #ifdef __linux__
     if (chord(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_P) && !tab.path.empty()) OpenProgramsView(state, ui, tab.path);
 #endif
-    if (chord(ImGuiMod_Alt | ImGuiKey_LeftArrow)) app::GoBack(tab);
-    if (chord(ImGuiMod_Alt | ImGuiKey_RightArrow)) app::GoForward(tab);
-    if (chord(ImGuiMod_Alt | ImGuiKey_UpArrow)) app::GoUp(tab);
+    if (chord(ImGuiMod_Alt | ImGuiKey_LeftArrow)) ViewBack(ui, tab);
+    if (chord(ImGuiMod_Alt | ImGuiKey_RightArrow)) ViewForward(ui, tab);
+    if (chord(ImGuiMod_Alt | ImGuiKey_UpArrow)) ViewUp(ui, tab);
     if (chord(ImGuiKey_F5))
         {
         app::Refresh(tab);
@@ -566,7 +602,9 @@ void DrawFrame(app::AppState& state, UiState& ui)
     HandleSplitRequest(state, ui);
     HandleViewerSplit(state, ui);
     CollapseEmptyMainPane(state, ui, dockspaceId);
+    const bool tabsPushed = PushTabBarSize(state);
     ImGui::DockSpace(dockspaceId, ImVec2(0, 0), ImGuiDockNodeFlags_None);
+    PopTabBarSize(tabsPushed);
     // The central node is where views go by default; it moves around as
     // the user splits, so look it up each frame.
     if (ImGuiDockNode* central = ImGui::DockBuilderGetCentralNode(dockspaceId)) ui.defaultViewDock = central->ID;
@@ -575,7 +613,10 @@ void DrawFrame(app::AppState& state, UiState& ui)
     if (state.settings.showNavPane)
         {
         bool open = true;
-        if (ImGui::Begin(kNavWindow, &open, ImGuiWindowFlags_NoCollapse)) DrawNavPane(state, ui);
+        const bool pushed = PushTabBarSize(state, kNavWindow);
+        const bool visible = ImGui::Begin(kNavWindow, &open, ImGuiWindowFlags_NoCollapse);
+        PopTabBarSize(pushed);
+        if (visible) DrawNavPane(state, ui);
         ImGui::End();
         if (!open) state.settings.showNavPane = false;
         }
@@ -612,8 +653,8 @@ void DrawFrame(app::AppState& state, UiState& ui)
         if (DrawProgramsView(state, ui, i)) closingPrograms.push_back(state.programViews[(size_t)i].id);
     for (int id : closingPrograms) CloseProgramsView(state, ui, id);
 
-    // What the vertical tab columns asked for, now that no window is
-    // being drawn.
+    // What the vertical tab columns and locked views asked for, now that
+    // no window is being drawn.
     HandlePaneRequests(state, ui);
 
     // Dialogs are opened and drawn in the host window so OpenPopup and

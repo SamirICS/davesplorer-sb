@@ -393,6 +393,11 @@ void ShowInFolderView(app::AppState& state, UiState& ui, const std::string& path
     if (state.tabs.empty()) return;
     app::Tab& tab = state.active();
     const std::string folder = app::ParentPath(path);
+    if (app::LockedAgainst(tab, folder))
+        {
+        NavigateView(ui, tab, folder, app::PathName(path));
+        return;
+        }
     std::string error;
     if (!SamePath(tab.path, folder) && !app::NavigateTo(tab, folder, error))
         {
@@ -432,8 +437,7 @@ bool DrawFileView(app::AppState& state, UiState& ui, int index)
     bool open = true;
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(6, 6));
     // Each kind scrolls its own canvas; the window itself never does.
-    PaneBeforeBegin(state);
-    const bool visible = ImGui::Begin(name.c_str(), &open, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    const bool visible = PaneBegin(state, name.c_str(), &open, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     ImGui::PopStyleVar();
     if (visible)
         {

@@ -5,6 +5,9 @@
 //
 // A dock node with its tab bar gone shows only its first window, so
 // choosing a tab moves that window to the front of the node's list.
+//
+// With the option off, the ordinary tab bars are drawn as tall, and their
+// names as large, as the column's rows.
 #include "ui/MainWindow.h"
 #include "ui/IconsMaterialDesign.h"
 #include "ui/Theme.h"
@@ -17,6 +20,7 @@
 
 #include <algorithm>
 #include <cfloat>
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -100,6 +104,26 @@ ImU32 IconColorFor(PaneKind kind)
     return kFolderRed;
 }
 
+// The column's sizes, from the interface's font. Bigger than the rest of
+// the interface: tabs are what the eye goes to when switching folders.
+struct TabMetrics
+{
+    float scale = 1.0f;
+    float text = 0.0f;
+    float icon = 0.0f;
+    float row = 0.0f;
+};
+
+TabMetrics Metrics()
+{
+    TabMetrics m;
+    m.scale = ImGui::GetStyle().FontScaleMain * ImGui::GetStyle().FontScaleDpi;
+    m.text = ImGui::GetFontSize() * 1.2f;
+    m.icon = ImGui::GetFontSize() * 1.45f;
+    m.row = m.icon + 12.0f * m.scale;
+    return m;
+}
+
 void BringToFront(ImGuiDockNode* node, ImGuiWindow* w)
 {
     for (int i = 1; i < node->Windows.Size; ++i)
@@ -121,7 +145,8 @@ void DrawColumn(app::AppState& state, UiState& ui, ImGuiWindow* self)
         entries.push_back(Describe(state, self));
     std::stable_sort(entries.begin(), entries.end(), [](const PaneEntry& a, const PaneEntry& b) { return a.order < b.order; });
 
-    const float scale = ImGui::GetStyle().FontScaleMain * ImGui::GetStyle().FontScaleDpi;
+    const TabMetrics metrics = Metrics();
+    const float scale = metrics.scale;
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 4));
     // Not ImGuiChildFlags_ResizeX: that keeps each child's width in
     // imgui.ini, over the setting. The width is the setting's, the same
@@ -129,12 +154,10 @@ void DrawColumn(app::AppState& state, UiState& ui, ImGuiWindow* self)
     ImGui::BeginChild("##panetabs", ImVec2(state.settings.verticalTabsWidth * scale, 0),
                       ImGuiChildFlags_Borders | ImGuiChildFlags_AlwaysUseWindowPadding);
     ImGui::PopStyleVar();
-    // Bigger than the rest of the interface: these are what the eye goes
-    // to when switching folders.
     const Palette& pal = CurrentPalette();
-    const float textSize = ImGui::GetFontSize() * 1.2f;
-    const float iconSize = ImGui::GetFontSize() * 1.45f;
-    const float rowHeight = iconSize + 12.0f * scale;
+    const float textSize = metrics.text;
+    const float iconSize = metrics.icon;
+    const float rowHeight = metrics.row;
     std::string selfPath;
     for (const PaneEntry& e : entries)
         {
@@ -171,6 +194,11 @@ void DrawColumn(app::AppState& state, UiState& ui, ImGuiWindow* self)
         if (ImGui::BeginPopupContextItem("##panetabmenu"))
             {
             if (ImGui::MenuItem("New tab here")) ui.paneNewTab = { e.path, node ? node->ID : 0, true };
+            if (e.kind == PaneKind::Folder)
+                {
+                app::Tab& tab = state.tabs[(size_t)e.order];
+                if (ImGui::MenuItem(tab.locked ? "Unlock tab" : "Lock tab")) tab.locked = !tab.locked;
+                }
             if (ImGui::MenuItem("Close tab")) ui.paneClose.push_back(e.window->ID);
             ImGui::EndPopup();
             }
@@ -269,13 +297,42 @@ void CollapseEmptyMainPane(const app::AppState& state, UiState& ui, ImGuiID dock
     ui.emptyMainPaneFrames = 0;
 }
 
-void PaneBeforeBegin(const app::AppState& state)
+bool PushTabBarSize(const app::AppState& state, const char* window)
+{
+    if (state.settings.verticalTabs) return false;
+    // A floating node's tab bar is drawn in NewFrame, at the ordinary
+    // size, so its windows must leave the ordinary room for it.
+    if (window != nullptr)
+        if (ImGuiWindow* w = ImGui::FindWindowByName(window))
+            if (w->DockNode != nullptr && ImGui::DockNodeGetRootNode(w->DockNode)->IsFloatingNode()) return false;
+    // The bar is the font's height plus the frame padding above and below,
+    // so the padding makes up the rest of a column row. In whole pixels:
+    // half a pixel more title than the window was laid out for leaves
+    // every view scrollable by that half.
+    const float row = std::round(Metrics().row);
+    ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 1.2f);   // unscaled, as PushFont wants
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(ImGui::GetStyle().FramePadding.x, (row - ImGui::GetFontSize()) * 0.5f));
+    return true;
+}
+
+void PopTabBarSize(bool pushed)
+{
+    if (!pushed) return;
+    ImGui::PopStyleVar();
+    ImGui::PopFont();
+}
+
+bool PaneBegin(const app::AppState& state, const char* name, bool* open, ImGuiWindowFlags flags)
 {
     // Set every frame, either way: a window keeps the class it was last
     // given, so turning the option off must hand it a plain one.
     ImGuiWindowClass wc;
     if (state.settings.verticalTabs) wc.DockNodeFlagsOverrideSet = ImGuiDockNodeFlags_NoTabBar;
     ImGui::SetNextWindowClass(&wc);
+    const bool pushed = PushTabBarSize(state, name);
+    const bool visible = ImGui::Begin(name, open, flags);
+    PopTabBarSize(pushed);
+    return visible;
 }
 
 bool PaneAfterBegin(app::AppState& state, UiState& ui, bool visible, bool wantFront)
@@ -309,6 +366,21 @@ void HandlePaneRequests(app::AppState& state, UiState& ui)
         OpenView(state, ui, ui.paneNewTab.path, ui.paneNewTab.dockId);
         ui.paneNewTab = {};
         }
+    // A locked view's new neighbour goes straight after it in tab order,
+    // which is the order the vertical tab column lists them in.
+    for (const UiState::LockedOpen& r : ui.lockedOpens)
+        {
+        const int index = OpenView(state, ui, r.path, r.dockId);
+        state.tabs[(size_t)index].selectOnLoad = r.select;
+        for (size_t i = 0; i < state.tabs.size(); ++i)
+            if (state.tabs[i].id == r.fromTab && (int)i + 1 < index)
+                {
+                std::rotate(state.tabs.begin() + (long)i + 1, state.tabs.begin() + index, state.tabs.begin() + index + 1);
+                state.activeTab = (int)i + 1;
+                break;
+                }
+        }
+    ui.lockedOpens.clear();
     for (ImGuiID id : ui.paneClose)
         {
         for (size_t i = 0; i < state.tabs.size(); ++i)

@@ -254,8 +254,7 @@ bool DrawProgramsView(app::AppState& state, UiState& ui, int index)
     for (const auto& [col, value] : tabColors) ImGui::PushStyleColor(col, value);
     const std::string name = ProgramsWindowName(state, view);
     bool open = true;
-    PaneBeforeBegin(state);
-    const bool visible = ImGui::Begin(name.c_str(), &open, ImGuiWindowFlags_NoCollapse);
+    const bool visible = PaneBegin(state, name.c_str(), &open, ImGuiWindowFlags_NoCollapse);
     ImGui::PopStyleColor((int)std::size(tabColors));
     // Right-click on the tab (its title bar when floating): straight after
     // Begin the last item is that tab, even for a tab not in front.

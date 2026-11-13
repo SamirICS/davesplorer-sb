@@ -33,19 +33,8 @@ namespace ui
 
 std::string ViewWindowName(const app::AppState& state, const app::Tab& tab)
 {
-    return (tab.pinned ? ICON_MD_PUSH_PIN " " : "") + app::LocationTitle(state, tab.path) + "###view" + std::to_string(tab.id);
+    return std::string(tab.locked ? ICON_MD_LOCK " " : "") + (tab.pinned ? ICON_MD_PUSH_PIN " " : "") + app::LocationTitle(state, tab.path) + "###view" + std::to_string(tab.id);
 }
-
-namespace
-{
-
-void Navigate(UiState& ui, app::Tab& tab, const std::string& path)
-{
-    std::string error;
-    if (!app::NavigateTo(tab, path, error)) ShowError(ui, error);
-}
-
-} // namespace
 
 bool OpenEntryHere(app::AppState& state, UiState& ui, int tabIndex, int entryIndex, std::string& error)
 {
@@ -55,6 +44,11 @@ bool OpenEntryHere(app::AppState& state, UiState& ui, int tabIndex, int entryInd
     if (app::OpensInApp(state.settings, e))
         {
         OpenFileView(state, ui, e.path);
+        return true;
+        }
+    if (e.isDirectory)
+        {
+        NavigateView(ui, state.tabs[(size_t)tabIndex], e.path);
         return true;
         }
 #ifdef __linux__
@@ -131,8 +125,7 @@ void DrawAddressBar(app::AppState& state, UiState& ui, app::Tab& tab, ViewUi& v,
         if (entered)
             {
             v.addressEditing = false;
-            std::string error;
-            if (!app::NavigateTo(tab, v.addressText, error)) ShowError(ui, error);
+            NavigateView(ui, tab, v.addressText);
             }
         else if (ImGui::IsKeyPressed(ImGuiKey_Escape) || (!active && !ImGui::IsItemActivated() && ImGui::IsItemDeactivated()))
             {
@@ -235,7 +228,7 @@ void DrawAddressBar(app::AppState& state, UiState& ui, app::Tab& tab, ViewUi& v,
         }
     if (ImGui::IsItemHovered()) ImGui::SetMouseCursor(ImGuiMouseCursor_TextInput);
     ImGui::EndChild();
-    if (haveClick) Navigate(ui, tab, clicked);
+    if (haveClick) NavigateView(ui, tab, clicked);
 }
 
 // Returns false when the toolbar opened a view (state.tabs moved).
@@ -243,11 +236,11 @@ bool DrawToolbar(app::AppState& state, UiState& ui, int tabIndex)
 {
     app::Tab& tab = state.tabs[(size_t)tabIndex];
     ViewUi& v = ui.view(tab.id);
-    if (IconButton("Back", ICON_MD_ARROW_BACK, "Back (Alt+Left)", app::CanGoBack(tab))) app::GoBack(tab);
+    if (IconButton("Back", ICON_MD_ARROW_BACK, "Back (Alt+Left)", app::CanGoBack(tab))) ViewBack(ui, tab);
     ImGui::SameLine();
-    if (IconButton("Forward", ICON_MD_ARROW_FORWARD, "Forward (Alt+Right)", app::CanGoForward(tab))) app::GoForward(tab);
+    if (IconButton("Forward", ICON_MD_ARROW_FORWARD, "Forward (Alt+Right)", app::CanGoForward(tab))) ViewForward(ui, tab);
     ImGui::SameLine();
-    if (IconButton("Up", ICON_MD_ARROW_UPWARD, "Up (Alt+Up)", app::CanGoUp(tab))) app::GoUp(tab);
+    if (IconButton("Up", ICON_MD_ARROW_UPWARD, "Up (Alt+Up)", app::CanGoUp(tab))) ViewUp(ui, tab);
     ImGui::SameLine();
     if (IconButton("Refresh", ICON_MD_REFRESH, "Refresh (F5)"))
         {
@@ -756,7 +749,7 @@ void HandleListKeys(app::AppState& state, UiState& ui, int tabIndex)
         OpenSelectedOrFocused(state, ui, tabIndex);
         return;   // may have opened views and moved state.tabs
         }
-    if (ImGui::IsKeyPressed(ImGuiKey_Backspace)) app::GoBack(tab);
+    if (ImGui::IsKeyPressed(ImGuiKey_Backspace)) ViewBack(ui, tab);
     if (ImGui::IsKeyPressed(ImGuiKey_F2) && app::SelectedCount(tab) == 1 && !tab.path.empty())
         {
         ui.dialogEntry = app::SelectedIndices(tab)[0];
@@ -1087,14 +1080,14 @@ bool DrawView(app::AppState& state, UiState& ui, int tabIndex)
     const std::string name = ViewWindowName(state, tab);
     bool open = true;
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(6, 6));
-    PaneBeforeBegin(state);
-    const bool visible = ImGui::Begin(name.c_str(), &open, ImGuiWindowFlags_NoCollapse);
+    const bool visible = PaneBegin(state, name.c_str(), &open, ImGuiWindowFlags_NoCollapse);
     ImGui::PopStyleVar();
     // Right-click on the view's tab (its title bar when floating): straight
     // after Begin the last item is that tab, even for a tab not in front.
     if (ImGui::BeginPopupContextItem("###viewtab"))
         {
         if (ImGui::MenuItem(tab.pinned ? "Remove pin" : "Pin")) app::SetPinned(state, tabIndex, !tab.pinned);
+        if (ImGui::MenuItem(tab.locked ? "Unlock tab" : "Lock tab")) tab.locked = !tab.locked;
         ImGui::EndPopup();
         }
     if (visible)

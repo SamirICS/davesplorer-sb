@@ -16,13 +16,16 @@ namespace app
 //
 //   version=1
 //   active=0
-//   view=<pinned>|<view mode>|<path>       one per view, in order
+//   view=<flags>|<view mode>|<path>        one per view, in order
 //   dock=(x 0.220 (nav) (y 0.500 (*0 1) (2)))
 //
 // The dock line is the tree as nested lists: "(x r A B)" splits left/right
 // with A taking r of the width, "(y r A B)" splits top/bottom, and any other
 // list is a leaf of tabs -- "nav" for the navigation pane, a number for a
 // view, the one marked * in front.
+//
+// A view's flags are 1 for pinned plus 2 for locked, so a file from before
+// tabs could be locked reads the same.
 
 namespace
 {
@@ -159,7 +162,7 @@ std::string SerializeLayout(const Layout& layout)
     out << "version=1\n";
     out << "active=" << layout.active << '\n';
     for (const LayoutView& v : layout.views)
-        out << "view=" << (v.pinned ? 1 : 0) << '|' << (int)v.viewMode << '|' << v.path << '\n';
+        out << "view=" << ((v.pinned ? 1 : 0) | (v.locked ? 2 : 0)) << '|' << (int)v.viewMode << '|' << v.path << '\n';
     out << "dock=";
     WriteNode(out, layout.root);
     out << '\n';
@@ -199,7 +202,9 @@ bool ParseLayout(const std::string& text, Layout& out, std::string& error)
                 return false;
                 }
             LayoutView v;
-            v.pinned = value.substr(0, a) == "1";
+            const int flags = std::atoi(value.substr(0, a).c_str());
+            v.pinned = (flags & 1) != 0;
+            v.locked = (flags & 2) != 0;
             v.viewMode = std::atoi(value.substr(a + 1, b - a - 1).c_str()) == 1 ? ViewMode::Thumbnails : ViewMode::Details;
             v.path = value.substr(b + 1);
             layout.views.push_back(std::move(v));

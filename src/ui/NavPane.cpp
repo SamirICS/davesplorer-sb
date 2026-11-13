@@ -42,8 +42,7 @@ const std::vector<std::string>& ChildFolders(UiState& ui, const app::Settings& s
 
 void Navigate(app::AppState& state, UiState& ui, const std::string& path)
 {
-    std::string error;
-    if (!app::NavigateTo(state.active(), path, error)) ShowError(ui, error);
+    NavigateView(ui, state.active(), path);
 }
 
 // A folder node: click on the label navigates, the arrow expands. Children
