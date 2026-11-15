@@ -4,6 +4,7 @@
 #include "app/AppState.h"
 #include "app/Extract.h"
 #include "app/FileOps.h"
+#include "app/FolderSize.h"
 #include "app/Format.h"
 #include "app/GitRemote.h"
 #include "app/Image.h"
@@ -658,6 +659,7 @@ void TestSettings()
     s.fontFamily = "Noto Sans";
     s.fontSize = 22.0f;
     s.restoreSession = false;
+    s.showFolderSizes = true;
 
     app::Settings back;
     const std::string text = app::SerializeSettings(s);
@@ -670,6 +672,8 @@ void TestSettings()
         if (eq != std::string::npos) app::ApplySettingLine(back, line.substr(0, eq), line.substr(eq + 1));
         pos = nl + 1;
         }
+    CHECK(back.showFolderSizes);
+    CHECK(!app::Settings{}.showFolderSizes);   // off until asked for
     CHECK_EQ(back.themeIndex, 2);
     CHECK(back.uiScale > 1.29f && back.uiScale < 1.31f);
     CHECK(back.showHidden);
@@ -1675,6 +1679,175 @@ void PumpUntilQuiet(app::AppState& state)
     CHECK(false);   // the walk never finished
 }
 
+#ifdef __linux__
+// Folder sizes come from a worker. Each pass is a frame: a tick, then the
+// on-screen views asking, as FilesPane does, until nothing is queued.
+void PumpSizes(app::AppState& state)
+{
+    for (int i = 0; i < 4000; ++i)
+        {
+        app::TickAppState(state);
+        bool busy = false;
+        for (app::Tab& t : state.tabs)
+            {
+            app::UpdateFolderSizes(t, state.settings, true);
+            busy = busy || t.sizing || app::foldersize::Busy(t.id);
+            }
+        if (!busy) return;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    CHECK(false);   // the walk never finished
+}
+
+void WriteBytes(const std::string& path, size_t n)
+{
+    std::ofstream(path) << std::string(n, 'x');
+}
+
+int RowNamed(const app::Tab& tab, const char* name)
+{
+    for (size_t i = 0; i < tab.entries.size(); ++i)
+        if (tab.entries[i].name == name) return (int)i;
+    return -1;
+}
+
+app::foldersize::State SizeStateOf(const app::Tab& tab, const char* name)
+{
+    const int i = RowNamed(tab, name);
+    if (i < 0 || (size_t)i >= tab.sizeState.size()) return app::foldersize::State::None;
+    return (app::foldersize::State)(tab.sizeState[(size_t)i] & ~app::foldersize::kPartialBit);
+}
+
+uint64_t SizeOf(const app::Tab& tab, const char* name)
+{
+    const int i = RowNamed(tab, name);
+    return i < 0 ? ~0ull : tab.entries[(size_t)i].size;
+}
+
+void TestFolderSizes()
+{
+    using platform::MountKind;
+    CHECK(platform::ClassifyFsType("ext4") == MountKind::Local);
+    CHECK(platform::ClassifyFsType("exfat") == MountKind::Local);
+    CHECK(platform::ClassifyFsType("fuseblk") == MountKind::Local);   // ntfs-3g on a USB disk
+    CHECK(platform::ClassifyFsType("btrfs") == MountKind::Local);
+    CHECK(platform::ClassifyFsType("tmpfs") == MountKind::Local);
+    CHECK(platform::ClassifyFsType("nfs4") == MountKind::Network);
+    CHECK(platform::ClassifyFsType("cifs") == MountKind::Network);
+    CHECK(platform::ClassifyFsType("fuse.sshfs") == MountKind::Network);
+    CHECK(platform::ClassifyFsType("fuse.gvfsd-fuse") == MountKind::Network);
+    CHECK(platform::ClassifyFsType("proc") == MountKind::Pseudo);
+    CHECK(platform::ClassifyFsType("sysfs") == MountKind::Pseudo);
+    CHECK(platform::ClassifyMount("/proc") == MountKind::Pseudo);
+
+    app::foldersize::Shutdown();   // nothing remembered from before
+    TempDir tmp("sizes");
+    const std::string a = tmp.dir("a");
+    const std::string inner = app::JoinPath(a, "inner");
+    const std::string deep = app::JoinPath(inner, "deep");
+    std::string error;
+    platform::CreateFolder(inner, error);
+    platform::CreateFolder(deep, error);
+    WriteBytes(app::JoinPath(a, "one"), 100);
+    WriteBytes(app::JoinPath(inner, "two"), 200);
+    WriteBytes(app::JoinPath(deep, "three"), 300);
+    // b: a file and a hard link to it, counted once; a link back up to the
+    // root and a link to a file, neither followed.
+    const std::string b = tmp.dir("b");
+    WriteBytes(app::JoinPath(b, "x"), 50);
+    CHECK(link(app::JoinPath(b, "x").c_str(), app::JoinPath(b, "hard").c_str()) == 0);
+    CHECK(symlink(tmp.path.c_str(), app::JoinPath(b, "loop").c_str()) == 0);
+    CHECK(symlink(app::JoinPath(a, "one").c_str(), app::JoinPath(b, "linkfile").c_str()) == 0);
+    tmp.dir("empty");
+    WriteBytes(app::JoinPath(tmp.path, "top.txt"), 7);
+
+    app::AppState state;
+    app::InitAppState(state, tmp.path);
+    state.tabs.clear();
+    app::OpenTab(state, tmp.path);
+    app::Tab& tab = state.active();
+    app::TickAppState(state);
+
+    // Off: nothing is asked for and the rows stay unmeasured.
+    state.settings.showFolderSizes = false;
+    app::UpdateFolderSizes(tab, state.settings, true);
+    CHECK(!tab.sizing);
+    CHECK(!app::foldersize::Busy(tab.id));
+    CHECK(SizeStateOf(tab, "a") == app::foldersize::State::None);
+    CHECK_EQ(SizeOf(tab, "a"), 0ull);
+
+    // On: every folder shown is measured.
+    state.settings.showFolderSizes = true;
+    app::FolderSizesToggled(state);
+    PumpSizes(state);
+    CHECK(SizeStateOf(tab, "a") == app::foldersize::State::Done);
+    CHECK_EQ(SizeOf(tab, "a"), 600ull);
+    CHECK_EQ(SizeOf(tab, "b"), 50ull);
+    CHECK(SizeStateOf(tab, "empty") == app::foldersize::State::Done);
+    CHECK_EQ(SizeOf(tab, "empty"), 0ull);
+    app::foldersize::Totals totals;
+    CHECK(app::foldersize::Query(a, tab.entries[(size_t)RowNamed(tab, "a")].modified, totals) == app::foldersize::State::Done);
+    CHECK_EQ(totals.files, 3ull);
+    CHECK_EQ(totals.folders, 2ull);
+    CHECK(!totals.partial);
+
+    // A measured folder counts toward the selection's total.
+    app::ClearSelection(tab);
+    tab.selected[(size_t)RowNamed(tab, "a")] = 1;
+    tab.selected[(size_t)RowNamed(tab, "top.txt")] = 1;
+    CHECK_EQ(app::SelectedBytes(tab), 607ull);
+
+    // Going down into a measured folder reads nothing: the walk of `a`
+    // kept the totals of the folders inside it.
+    const uint64_t reads = app::foldersize::FoldersRead();
+    CHECK(app::NavigateTo(tab, a, error));
+    PumpSizes(state);
+    CHECK_EQ(SizeOf(tab, "inner"), 500ull);
+    CHECK(SizeStateOf(tab, "inner") == app::foldersize::State::Done);
+    CHECK_EQ(app::foldersize::FoldersRead(), reads);
+
+    // A change made outside the program shows after F5.
+    WriteBytes(app::JoinPath(deep, "four"), 1000);
+    app::Rescan(tab);
+    PumpSizes(state);
+    CHECK_EQ(SizeOf(tab, "inner"), 1500ull);
+    // Rescan forgot the folders above too, so `a` is measured again.
+    CHECK(app::NavigateTo(tab, tmp.path, error));
+    PumpSizes(state);
+    CHECK_EQ(SizeOf(tab, "a"), 1600ull);
+
+    // A delete through the program forgets what counted the file.
+    CHECK(app::NavigateTo(tab, a, error));
+    PumpSizes(state);
+    app::ClearSelection(tab);
+    tab.selected[(size_t)RowNamed(tab, "one")] = 1;
+    CHECK(app::DeleteSelected(state, tab, true, error));
+    CHECK(app::NavigateTo(tab, tmp.path, error));
+    PumpSizes(state);
+    CHECK_EQ(SizeOf(tab, "a"), 1500ull);
+
+    // A walk the view no longer wants is dropped.
+    state.settings.showFolderSizes = false;
+    app::FolderSizesToggled(state);
+    app::foldersize::Invalidate(b);
+    app::foldersize::Request(tab.id, b, tab.entries[(size_t)RowNamed(tab, "b")].modified, false);
+    app::foldersize::Cancel(tab.id);
+    CHECK(!app::foldersize::Busy(tab.id));
+
+    // Calculate size measures the selection with the toggle off.
+    app::TickAppState(state);
+    app::UpdateFolderSizes(tab, state.settings, true);
+    CHECK(SizeStateOf(tab, "b") == app::foldersize::State::None);
+    app::ClearSelection(tab);
+    tab.selected[(size_t)RowNamed(tab, "b")] = 1;
+    app::CalculateSelectedSizes(tab);
+    PumpSizes(state);
+    CHECK(SizeStateOf(tab, "b") == app::foldersize::State::Done);
+    CHECK_EQ(SizeOf(tab, "b"), 50ull);
+    app::foldersize::Shutdown();
+}
+#endif
+
 void TestExpandedTree()
 {
     TempDir tmp("tree");
@@ -2547,7 +2720,11 @@ int main()
     TestPinsAndLayouts();
     TestGitRemotes();
     TestExpandedTree();
+#ifdef __linux__
+    TestFolderSizes();
+#endif
     app::treescan::Shutdown();   // joins the folder-walking thread
+    app::foldersize::Shutdown();
     app::programscan::Shutdown();
     std::printf("%d checks, %d failures\n", g_checks, g_failures);
     return g_failures;

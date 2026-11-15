@@ -79,6 +79,47 @@ bool IsElfProgram(const std::string& path);
 // cannot be told, and always on platforms other than Linux.
 std::string FolderIdentity(const std::string& path);
 
+// One entry as the folder-size walk sees it: no type name, no wide string,
+// no permission checks, so a large tree costs one stat per entry at most.
+struct SizeChild
+{
+    std::string name;
+    uint64_t    size = 0;       // regular files only; 0 for anything else
+    int64_t     modified = 0;   // same units as FileEntry::modified
+    uint64_t    device = 0;     // 0 where the platform cannot say cheaply
+    uint64_t    inode = 0;
+    uint32_t    links = 1;      // hard links to this file
+    bool        isDirectory = false;   // a real folder, not a link to one
+    bool        isLink = false;        // a link of any kind; never followed
+};
+
+// The children of one folder for summing sizes. Links are reported, not
+// followed. False when the folder cannot be read.
+bool ListSizes(const std::string& path, std::vector<SizeChild>& out);
+
+// Where a folder physically lives, so a size walk can go into a USB disk
+// mounted under it but not into a network share or /proc.
+enum class MountKind
+{
+    Local,
+    Network,
+    Pseudo,
+};
+MountKind ClassifyMount(const std::string& path);
+
+#ifdef __linux__
+// The rule behind ClassifyMount, by filesystem type name as
+// /proc/self/mountinfo spells it ("ext4", "fuseblk", "fuse.sshfs", "nfs4").
+MountKind ClassifyFsType(const std::string& fsType);
+#endif
+
+// The device a folder is on, as ListSizes reports it; 0 when unknown.
+uint64_t FolderDevice(const std::string& path);
+
+// Drops the calling thread to the lowest CPU and disk priority the OS
+// offers, for background work nobody is waiting on.
+void LowerCurrentThreadPriority();
+
 // "Text Document", "File folder", "PNG File"... as the shell names them.
 std::string FileTypeName(const std::string& extension, bool isDirectory);
 

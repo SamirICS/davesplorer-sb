@@ -1,4 +1,5 @@
 #include "app/Navigation.h"
+#include "app/FolderSize.h"
 #include "app/Listing.h"
 #include "app/PathUtil.h"
 #include "platform/FileSystem.h"
@@ -86,6 +87,12 @@ void GoUp(Tab& tab)
 void Refresh(Tab& tab)
 {
     tab.needsReload = true;
+}
+
+void Rescan(Tab& tab)
+{
+    foldersize::Invalidate(tab.path);
+    Refresh(tab);
 }
 
 } // namespace app

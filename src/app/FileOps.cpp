@@ -1,4 +1,5 @@
 #include "app/FileOps.h"
+#include "app/FolderSize.h"
 #include "app/Navigation.h"
 #include "app/PathUtil.h"
 #include "app/Selection.h"
@@ -145,6 +146,7 @@ bool DeleteSelected(AppState& state, Tab& tab, bool permanent, std::string& erro
         }
     const std::vector<std::string> paths = SelectedPaths(tab);
     if (paths.empty()) return true;
+    for (const std::string& p : paths) foldersize::Invalidate(p);
     const bool ok = permanent ? platform::DeletePermanently(paths, error)
                               : platform::MoveToRecycleBin(paths, error);
     if (!permanent)

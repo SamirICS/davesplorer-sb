@@ -12,6 +12,8 @@
 #include <sys/stat.h>
 #include <sys/mount.h>
 #include <sys/param.h>
+#include <sys/resource.h>
+#include <dirent.h>
 
 namespace platform
 {
@@ -257,6 +259,49 @@ bool MoveToRecycleBin(const std::vector<std::string>& paths, std::string& error)
 bool IsElfProgram(const std::string&) { return false; }
 
 std::string FolderIdentity(const std::string&) { return {}; }
+bool ListSizes(const std::string& path, std::vector<SizeChild>& out)
+{
+    out.clear();
+    const int fd = open(path.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (fd < 0) return false;
+    DIR* dir = fdopendir(fd);
+    if (!dir) { close(fd); return false; }
+    while (const dirent* d = readdir(dir))
+        {
+        if (d->d_name[0] == '.' && (d->d_name[1] == '\0' || (d->d_name[1] == '.' && d->d_name[2] == '\0')))
+            continue;
+        struct stat st{};
+        if (fstatat(fd, d->d_name, &st, AT_SYMLINK_NOFOLLOW) != 0) continue;
+        SizeChild c;
+        c.name = d->d_name;
+        c.isLink = S_ISLNK(st.st_mode);
+        c.isDirectory = S_ISDIR(st.st_mode);
+        c.size = S_ISREG(st.st_mode) ? (uint64_t)st.st_size : 0;
+        c.modified = st.st_mtime;
+        c.device = (uint64_t)st.st_dev;
+        c.inode = (uint64_t)st.st_ino;
+        c.links = (uint32_t)st.st_nlink;
+        out.push_back(std::move(c));
+        }
+    closedir(dir);
+    return true;
+}
+MountKind ClassifyMount(const std::string& path)
+{
+    struct statfs sf{};
+    if (statfs(path.c_str(), &sf) != 0) return MountKind::Local;
+    if (strcmp(sf.f_fstypename, "devfs") == 0 || strcmp(sf.f_fstypename, "autofs") == 0) return MountKind::Pseudo;
+    return (sf.f_flags & MNT_LOCAL) ? MountKind::Local : MountKind::Network;
+}
+uint64_t FolderDevice(const std::string& path)
+{
+    struct stat st{};
+    return stat(path.c_str(), &st) == 0 ? (uint64_t)st.st_dev : 0;
+}
+void LowerCurrentThreadPriority()
+{
+    setpriority(PRIO_DARWIN_THREAD, 0, PRIO_DARWIN_BG);
+}
 bool RestoreFromRecycleBin(const std::string& originalPath, std::string& error)
 {
     // The Finder keeps where an item came from in the Trash's .DS_Store,

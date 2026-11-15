@@ -98,7 +98,9 @@ uint64_t SelectedBytes(const Tab& tab)
 {
     uint64_t total = 0;
     for (size_t i = 0; i < tab.selected.size() && i < tab.entries.size(); ++i)
-        if (tab.selected[i] && !tab.entries[i].isDirectory) total += tab.entries[i].size;
+        // A folder counts once Folder sizes or Calculate size has measured
+        // it; until then its size is 0. A drive on This PC never does.
+        if (tab.selected[i] && (!tab.entries[i].isDirectory || !tab.path.empty())) total += tab.entries[i].size;
     return total;
 }
 

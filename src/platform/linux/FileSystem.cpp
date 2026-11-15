@@ -12,6 +12,10 @@
 #include <cstring>
 #include <sys/stat.h>
 #include <sys/syscall.h>
+#include <sys/statfs.h>
+#include <sys/sysmacros.h>
+#include <sys/resource.h>
+#include <dirent.h>
 #include <linux/fs.h>
 
 namespace platform
@@ -123,6 +127,99 @@ std::string FolderIdentity(const std::string& path)
     struct stat st{};
     if (stat(path.c_str(), &st) != 0 || !S_ISDIR(st.st_mode)) return {};
     return std::to_string((unsigned long long)st.st_dev) + ":" + std::to_string((unsigned long long)st.st_ino);
+}
+bool ListSizes(const std::string& path, std::vector<SizeChild>& out)
+{
+    out.clear();
+    const int fd = open(path.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (fd < 0) return false;
+    DIR* dir = fdopendir(fd);
+    if (!dir) { close(fd); return false; }
+    while (const dirent* d = readdir(dir))
+        {
+        if (d->d_name[0] == '.' && (d->d_name[1] == '\0' || (d->d_name[1] == '.' && d->d_name[2] == '\0')))
+            continue;
+        struct stat st{};
+        if (fstatat(fd, d->d_name, &st, AT_SYMLINK_NOFOLLOW) != 0) continue;
+        SizeChild c;
+        c.name = d->d_name;
+        c.isLink = S_ISLNK(st.st_mode);
+        c.isDirectory = S_ISDIR(st.st_mode);
+        c.size = S_ISREG(st.st_mode) ? (uint64_t)st.st_size : 0;
+        c.modified = st.st_mtime;
+        c.device = (uint64_t)st.st_dev;
+        c.inode = (uint64_t)st.st_ino;
+        c.links = (uint32_t)st.st_nlink;
+        out.push_back(std::move(c));
+        }
+    closedir(dir);   // closes fd too
+    return true;
+}
+MountKind ClassifyFsType(const std::string& t)
+{
+    // Disks with a FUSE driver (ntfs-3g, older exfat) mount as "fuseblk";
+    // the rest of FUSE is mostly somewhere else on the network.
+    static const char* const kLocalFuse[] = { "fuse.gocryptfs", "fuse.encfs", "fuse.cryfs", "fuse.securefs",
+                                              "fuse.mergerfs", "fuse.bindfs", "fuse.ntfs-3g", "fuse.exfat" };
+    static const char* const kNetwork[] = { "nfs", "nfs4", "cifs", "smb3", "smbfs", "ncpfs", "9p", "afs",
+                                            "ceph", "glusterfs", "lustre", "davfs", "coda", "sshfs" };
+    static const char* const kPseudo[] = { "proc", "sysfs", "devpts", "devtmpfs", "cgroup", "cgroup2", "debugfs",
+                                           "tracefs", "securityfs", "pstore", "bpf", "configfs", "efivarfs",
+                                           "autofs", "mqueue", "binfmt_misc", "fusectl", "hugetlbfs",
+                                           "rpc_pipefs", "nsfs" };
+    for (const char* n : kLocalFuse) if (t == n) return MountKind::Local;
+    for (const char* n : kNetwork)   if (t == n) return MountKind::Network;
+    for (const char* n : kPseudo)    if (t == n) return MountKind::Pseudo;
+    if (t == "fuse" || t.compare(0, 5, "fuse.") == 0) return MountKind::Network;
+    return MountKind::Local;
+}
+MountKind ClassifyMount(const std::string& path)
+{
+    struct stat st{};
+    if (stat(path.c_str(), &st) != 0) return MountKind::Local;
+    // mountinfo names the filesystem, which is what tells a FUSE disk from
+    // sshfs: "36 35 98:0 /mnt1 /mnt/parent rw - ext3 /dev/root rw".
+    const std::string dev = std::to_string(major(st.st_dev)) + ":" + std::to_string(minor(st.st_dev));
+    std::ifstream in("/proc/self/mountinfo");
+    std::string line;
+    while (std::getline(in, line))
+        {
+        const size_t a = line.find(' '), b = a == std::string::npos ? a : line.find(' ', a + 1);
+        const size_t c = b == std::string::npos ? b : line.find(' ', b + 1);
+        if (c == std::string::npos || line.compare(b + 1, c - b - 1, dev) != 0) continue;
+        const size_t dash = line.find(" - ");
+        if (dash == std::string::npos) continue;
+        const size_t start = dash + 3, end = line.find(' ', start);
+        return ClassifyFsType(line.substr(start, end == std::string::npos ? std::string::npos : end - start));
+        }
+    // Not a mount point of its own (a btrfs subvolume, say): ask the
+    // filesystem for its magic number instead.
+    struct statfs sf{};
+    if (statfs(path.c_str(), &sf) != 0) return MountKind::Local;
+    switch ((unsigned long)sf.f_type)
+        {
+        case 0x6969: case 0x517B: case 0xFF534D42: case 0xFE534D42: case 0x564C:
+        case 0x5346414F: case 0x6B414653: case 0x01021997: case 0x00C36400: case 0x65735546:
+            return MountKind::Network;
+        case 0x9FA0: case 0x62656572: case 0x1CD1: case 0x27E0EB: case 0x63677270: case 0x64626720:
+        case 0x74726163: case 0x73636673: case 0x6165676C: case 0xCAFE4A11: case 0x62656570:
+            return MountKind::Pseudo;
+        default:
+            return MountKind::Local;
+        }
+}
+uint64_t FolderDevice(const std::string& path)
+{
+    struct stat st{};
+    return stat(path.c_str(), &st) == 0 ? (uint64_t)st.st_dev : 0;
+}
+void LowerCurrentThreadPriority()
+{
+    const pid_t tid = (pid_t)syscall(SYS_gettid);
+    setpriority(PRIO_PROCESS, (id_t)tid, 19);
+    // IOPRIO_WHO_PROCESS, IOPRIO_CLASS_IDLE: the disk only when nobody
+    // else wants it.
+    syscall(SYS_ioprio_set, 1, (int)tid, 3 << 13);
 }
 bool IsDirectory(const std::string& path)
 {

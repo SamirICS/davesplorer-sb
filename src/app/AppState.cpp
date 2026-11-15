@@ -1,4 +1,5 @@
 #include "app/AppState.h"
+#include "app/FolderSize.h"
 #include "app/Layout.h"
 #include "app/Image.h"
 #include "app/Listing.h"
@@ -211,6 +212,7 @@ void CloseTab(AppState& state, int index)
     // Nothing is left to receive what the walker is still reading, and the
     // id will be handed to a tab opened later.
     treescan::Cancel(state.tabs[(size_t)index].id);
+    foldersize::Cancel(state.tabs[(size_t)index].id);
     state.tabs.erase(state.tabs.begin() + index);
     if (state.activeTab >= (int)state.tabs.size()) state.activeTab = (int)state.tabs.size() - 1;
     else if (state.activeTab > index) --state.activeTab;

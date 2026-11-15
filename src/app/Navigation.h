@@ -27,5 +27,8 @@ void GoBack(Tab& tab);
 void GoForward(Tab& tab);
 void GoUp(Tab& tab);
 void Refresh(Tab& tab);
+// F5: Refresh, and measure the folder sizes under this folder afresh, for
+// changes made outside the program.
+void Rescan(Tab& tab);
 
 } // namespace app

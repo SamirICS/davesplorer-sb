@@ -419,6 +419,8 @@ void DrawMenuBar(app::AppState& state, UiState& ui)
             for (app::Tab& t : state.tabs) app::ApplyView(t, s);
             ui.treeChildren.clear();
             }
+        // Off by default: every folder shown is walked to the bottom.
+        if (ImGui::MenuItem("Folder sizes", nullptr, &s.showFolderSizes)) app::FolderSizesToggled(state);
         ImGui::MenuItem("File name extensions", nullptr, &s.showExtensions);
         ImGui::MenuItem("Open images in Davesplorer", nullptr, &s.openImagesInApp);
         ImGui::MenuItem("Open PDF and Markdown in Davesplorer", nullptr, &s.openDocumentsInApp);
@@ -461,7 +463,7 @@ void DrawMenuBar(app::AppState& state, UiState& ui)
         ImGui::Separator();
         if (ImGui::MenuItem("Refresh", "F5"))
             {
-            app::Refresh(tab);
+            app::Rescan(tab);
             app::RefreshDrives(state);
             ui.treeChildren.clear();
             }
@@ -542,7 +544,7 @@ void HandleGlobalShortcuts(app::AppState& state, UiState& ui)
     if (chord(ImGuiMod_Alt | ImGuiKey_UpArrow)) ViewUp(ui, tab);
     if (chord(ImGuiKey_F5))
         {
-        app::Refresh(tab);
+        app::Rescan(tab);
         app::RefreshDrives(state);
         ui.treeChildren.clear();
         }

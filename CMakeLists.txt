@@ -201,6 +201,7 @@ add_library(dsp_app STATIC
     src/app/PathUtil.cpp
     src/app/Listing.cpp
     src/app/TreeScan.cpp
+    src/app/FolderSize.cpp
     src/app/ProgramScan.cpp
     src/app/Navigation.cpp
     src/app/Selection.cpp

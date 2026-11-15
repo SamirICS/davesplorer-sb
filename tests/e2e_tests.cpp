@@ -13,6 +13,7 @@
 #include "app/FileOps.h"
 #include "app/Layout.h"
 #include "app/Shortcuts.h"
+#include "app/FolderSize.h"
 #include "app/TreeScan.h"
 #include "platform/Clipboard.h"
 #include "platform/FileSystem.h"
@@ -1283,6 +1284,57 @@ void RegisterTests(ImGuiTestEngine* e)
         IM_CHECK(fx.state.fileViews.empty());
     };
 
+    // Folder sizes: blank while off; View > Folder sizes measures the
+    // folder on the worker; right-click > Calculate size does the same with
+    // the toggle off.
+    t = IM_REGISTER_TEST(e, "explorer", "folder_sizes_toggle_and_calculate");
+    t->TestFunc = [](ImGuiTestContext* ctx) {
+        Fixture& fx = *g_fx;
+        app::foldersize::Shutdown();   // nothing remembered from an earlier test
+        fx.state.settings.showFolderSizes = false;
+        GoToScratch(ctx, fx);
+        RefActiveView(ctx, fx);
+        auto sub = [&]() {
+            const app::Tab& tab = fx.state.active();
+            for (size_t i = 0; i < tab.entries.size(); ++i)
+                if (tab.entries[i].name == "sub") return (int)i;
+            return -1;
+        };
+        auto subState = [&]() {
+            const app::Tab& tab = fx.state.active();
+            const int i = sub();
+            if (i < 0 || (size_t)i >= tab.sizeState.size()) return app::foldersize::State::None;
+            return (app::foldersize::State)(tab.sizeState[(size_t)i] & ~app::foldersize::kPartialBit);
+        };
+        IM_CHECK(subState() == app::foldersize::State::None);
+        IM_CHECK(!app::foldersize::Busy(fx.state.active().id));
+
+        ctx->SetRef(ui::kHostWindow);
+        ctx->MenuClick("View/Folder sizes");
+        IM_CHECK(fx.state.settings.showFolderSizes);
+        for (int i = 0; i < 600 && subState() != app::foldersize::State::Done; ++i) ctx->Yield();
+        IM_CHECK(subState() == app::foldersize::State::Done);
+        IM_CHECK_EQ(fx.state.active().entries[(size_t)sub()].size, (uint64_t)9);   // inner.txt and leaf.txt
+
+        ctx->SetRef(ui::kHostWindow);
+        ctx->MenuClick("View/Folder sizes");
+        IM_CHECK(!fx.state.settings.showFolderSizes);
+        app::foldersize::Shutdown();
+        fx.state.active().sizesVersion = 0;
+        ctx->Yield(2);
+        IM_CHECK(subState() == app::foldersize::State::None);
+
+        RefActiveView(ctx, fx);
+        ctx->ItemClick("**/###sub", ImGuiMouseButton_Right);
+        ctx->Yield(2);
+        ctx->SetRef("//$FOCUSED");
+        ctx->ItemClick("Calculate size");
+        for (int i = 0; i < 600 && subState() != app::foldersize::State::Done; ++i) ctx->Yield();
+        IM_CHECK(subState() == app::foldersize::State::Done);
+        IM_CHECK_EQ(fx.state.active().entries[(size_t)sub()].size, (uint64_t)9);
+        app::foldersize::Shutdown();
+    };
+
     // A PDF opens in the viewer, its pages render on the worker thread and
     // reach the screen, Next page moves on, and find counts the matches on
     // both pages.
@@ -2354,6 +2406,7 @@ int main(int argc, char** argv)
         }
 
     app::treescan::Shutdown();
+    app::foldersize::Shutdown();
     app::programscan::Shutdown();
     app::extractjob::Shutdown();
     ui::thumbnails::Shutdown();

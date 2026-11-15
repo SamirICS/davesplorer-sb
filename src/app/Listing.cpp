@@ -1,5 +1,7 @@
 #include "app/Listing.h"
 #include "app/AppState.h"
+#include "app/FolderSize.h"
+#include "app/Selection.h"
 #include "app/TreeScan.h"
 #include "platform/Strings.h"
 
@@ -239,7 +241,90 @@ void ApplyTreeView(Tab& tab, const Settings& settings)
     AppendSubtree(tab, -1, start, kids, wanted, filtering);
 }
 
+// What foldersize knows, into the folder rows. True when a size or state
+// changed.
+bool FillFolderSizes(Tab& tab)
+{
+    tab.sizeState.assign(tab.entries.size(), 0);
+    tab.sizing = false;
+    // This PC's rows are drives, whose size is the space used.
+    if (tab.path.empty()) return false;
+    bool changed = false;
+    for (size_t i = 0; i < tab.entries.size(); ++i)
+        {
+        platform::FileEntry& e = tab.entries[i];
+        if (!e.isDirectory) continue;
+        foldersize::Totals t;
+        const foldersize::State st = foldersize::Query(e.path, e.modified, t);
+        const bool known = st == foldersize::State::Running || st == foldersize::State::Done;
+        const uint64_t size = known ? t.bytes : 0;
+        uint8_t state = (uint8_t)st;
+        if (st == foldersize::State::Done && t.partial) state |= foldersize::kPartialBit;
+        changed = changed || e.size != size || tab.sizeState[i] != state;
+        e.size = size;
+        tab.sizeState[i] = state;
+        tab.sizing = tab.sizing || st == foldersize::State::Queued || st == foldersize::State::Running;
+        }
+    return changed;
+}
+
 } // namespace
+
+void UpdateFolderSizes(Tab& tab, const Settings& settings, bool onScreen)
+{
+    // Read before the rows, so a change made while they are filled is
+    // picked up on the next frame rather than lost.
+    const uint64_t version = foldersize::Version();
+    if (version == tab.sizesVersion && tab.sizesListing == tab.listingGeneration &&
+        tab.sizesEntries == tab.entries.size())
+        return;
+    tab.sizesVersion = version;
+    tab.sizesListing = tab.listingGeneration;
+    tab.sizesEntries = tab.entries.size();
+
+    const bool wasSizing = tab.sizing;
+    const std::vector<uint8_t> before = tab.sizeState;
+    bool changed = FillFolderSizes(tab);
+    changed = changed || before != tab.sizeState;
+
+    if (onScreen && settings.showFolderSizes && !tab.path.empty())
+        {
+        // In the order the rows are shown, so the top of the list fills in
+        // first. A link is left alone, as the walk itself does.
+        for (int i : tab.visible)
+            {
+            const platform::FileEntry& e = tab.entries[(size_t)i];
+            if (!e.isDirectory || e.isReparsePoint) continue;
+            if (tab.sizeState[(size_t)i] != (uint8_t)foldersize::State::None) continue;
+            foldersize::Request(tab.id, e.path, e.modified, false);
+            tab.sizing = true;
+            }
+        tab.sizesPath = tab.path;
+        }
+
+    // Rows move only once every folder has its size: a list that keeps
+    // reshuffling while it fills in cannot be read.
+    if (tab.sort.column == SortColumn::Size && !tab.sizing && (changed || wasSizing)) ApplyView(tab, settings);
+}
+
+void CalculateSelectedSizes(Tab& tab)
+{
+    if (tab.path.empty()) return;
+    for (int i : SelectedIndices(tab))
+        {
+        const platform::FileEntry& e = tab.entries[(size_t)i];
+        if (!e.isDirectory) continue;
+        foldersize::Invalidate(e.path);
+        foldersize::Request(tab.id, e.path, e.modified, true);
+        }
+    tab.sizesPath = tab.path;
+}
+
+void FolderSizesToggled(AppState& state)
+{
+    if (!state.settings.showFolderSizes) foldersize::CancelUnasked();
+    for (Tab& tab : state.tabs) tab.sizesVersion = 0;
+}
 
 void ReloadIfNeeded(Tab& tab, const Settings& settings)
 {
@@ -257,6 +342,13 @@ void ReloadIfNeeded(Tab& tab, const Settings& settings)
     // Whatever the walker is still reading describes a listing that is
     // about to be replaced.
     CancelWalk(tab);
+    // Sizes of folders the view has left are no longer wanted; a reload of
+    // the same folder, after a file operation say, keeps its walks going.
+    if (tab.path != tab.sizesPath)
+        {
+        foldersize::Cancel(tab.id);
+        tab.sizesPath.clear();
+        }
     tab.entries.clear();
     tab.typeNames.clear();
     tab.nodes.clear();
@@ -296,6 +388,8 @@ void ReloadIfNeeded(Tab& tab, const Settings& settings)
     // time are not restored.
     if (tab.expandAll && !tab.path.empty()) RequestSubfolders(tab, settings, 0, tab.entries.size());
     tab.scanning = treescan::Busy(tab.id);
+    // Sizes already known sort the first frame right.
+    FillFolderSizes(tab);
     ApplyView(tab, settings);
 }
 

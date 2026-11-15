@@ -10,6 +10,7 @@
 
 #include "app/Extract.h"
 #include "app/FileOps.h"
+#include "app/FolderSize.h"
 #include "app/Format.h"
 #include "app/Image.h"
 #include "app/Listing.h"
@@ -244,7 +245,7 @@ bool DrawToolbar(app::AppState& state, UiState& ui, int tabIndex)
     ImGui::SameLine();
     if (IconButton("Refresh", ICON_MD_REFRESH, "Refresh (F5)"))
         {
-        app::Refresh(tab);
+        app::Rescan(tab);
         ui.treeChildren.clear();
         }
     ImGui::SameLine();
@@ -447,6 +448,9 @@ void DrawRowContextMenu(app::AppState& state, UiState& ui, int tabIndex)
         const std::vector<int> sel = app::SelectedIndices(tab);
         if (!sel.empty() && !platform::ShowInExplorer(tab.entries[(size_t)sel[0]].path, error)) ShowError(ui, error);
         }
+    bool selectionHasFolder = false;
+    for (int i : app::SelectedIndices(tab)) selectionHasFolder = selectionHasFolder || tab.entries[(size_t)i].isDirectory;
+    if (ImGui::MenuItem("Calculate size", nullptr, false, selectionHasFolder && inFolder)) app::CalculateSelectedSizes(tab);
     // A folder row asks about its own repository; anything else, the one
     // the view is in.
     GitRemoteMenu(ui, focusedIsFolder ? focusedPath : tab.path);
@@ -495,7 +499,7 @@ void DrawBackgroundContextMenu(app::AppState& state, UiState& ui, app::Tab& tab)
     ImGui::Separator();
     if (ImGui::MenuItem("Select all", "Ctrl+A")) app::SelectAll(tab);
     ImGui::Separator();
-    if (ImGui::MenuItem("Refresh", "F5")) app::Refresh(tab);
+    if (ImGui::MenuItem("Refresh", "F5")) app::Rescan(tab);
 #ifdef __linux__
     if (ImGui::MenuItem("Show programs in this folder", "Ctrl+Shift+P", false, inFolder)) OpenProgramsView(state, ui, tab.path);
 #endif
@@ -772,6 +776,39 @@ void HandleListKeys(app::AppState& state, UiState& ui, int tabIndex)
     if (ctrl && ImGui::IsKeyPressed(ImGuiKey_V, false) && app::CanPaste(state, tab)) StartPaste(state, ui, tab);
 }
 
+// A folder's Size cell: blank until measured, then its total. A total
+// still climbing is faint, as is a folder on a network drive the toggle
+// passed over.
+void DrawFolderSizeCell(const app::Tab& tab, int entryIndex)
+{
+    using app::foldersize::State;
+    const uint8_t raw = (size_t)entryIndex < tab.sizeState.size() ? tab.sizeState[(size_t)entryIndex] : 0;
+    const State st = (State)(raw & ~app::foldersize::kPartialBit);
+    const bool partial = (raw & app::foldersize::kPartialBit) != 0;
+    const uint64_t bytes = tab.entries[(size_t)entryIndex].size;
+    std::string text;
+    const char* tip = nullptr;
+    switch (st)
+        {
+        case State::Done:
+            text = app::SizeInKB(bytes) + (partial ? "+" : "");
+            if (partial) tip = "At least this much: part of it could not be read, or is on a network drive.";
+            break;
+        case State::Running: text = app::SizeInKB(bytes) + " \u2026"; break;
+        case State::Queued:  text = "\u2026"; break;
+        case State::Skipped:
+            text = "\u2014";
+            tip = "On a network drive, so Folder sizes leaves it alone. Right-click > Calculate size to measure it.";
+            break;
+        case State::None:    return;
+        }
+    const float w = ImGui::CalcTextSize(text.c_str()).x;
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(0.0f, ImGui::GetContentRegionAvail().x - w));
+    if (st == State::Done) MutedText(text.c_str());
+    else FaintText(text.c_str());
+    if (tip && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
+}
+
 void DrawFileTable(app::AppState& state, UiState& ui, int tabIndex)
 {
     app::Tab& tab = state.tabs[(size_t)tabIndex];
@@ -928,6 +965,8 @@ void DrawFileTable(app::AppState& state, UiState& ui, int tabIndex)
                 ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(0.0f, ImGui::GetContentRegionAvail().x - w));
                 MutedText(size.c_str());
                 }
+            else
+                DrawFolderSizeCell(tab, entryIndex);
             }
         }
     ImGui::PopStyleColor(3);
@@ -960,6 +999,7 @@ void DrawStatusBar(app::AppState& state, UiState& ui, app::Tab& tab)
     // the count climb with no explanation.
     if (tab.scanning) text += "    scanning subfolders...";
     if (tab.scanTruncated) text += "    stopped at " + std::to_string(app::kMaxTreeEntries) + " items";
+    if (tab.sizing) text += "    measuring folders...";
     ImGui::Separator();
     ImGui::AlignTextToFramePadding();
     MutedText(text.c_str());
@@ -1001,6 +1041,9 @@ void DrawViewContents(app::AppState& state, UiState& ui, int tabIndex)
     if (!DrawToolbar(state, ui, tabIndex)) return;
 
     app::Tab& tab = state.tabs[(size_t)tabIndex];
+    // Only a view being drawn asks for sizes, and only one with a Size
+    // column to put them in.
+    app::UpdateFolderSizes(tab, state.settings, tab.viewMode != app::ViewMode::Thumbnails);
     // The status bar holds buttons now, so it is a frame tall, not a line.
     const float statusHeight = state.settings.showStatusBar
                                    ? ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.y * 2

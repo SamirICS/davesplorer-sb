@@ -5,6 +5,7 @@
 
 #include "app/AppState.h"
 #include "app/Extract.h"
+#include "app/FolderSize.h"
 #include "app/TreeScan.h"
 #include "ui/Fonts.h"
 #include "ui/MainWindow.h"
@@ -362,6 +363,7 @@ int RunApplication(int argc, char** argv)
     ShutdownDragOut();
 
     app::treescan::Shutdown();           // joins the folder-walking thread
+    app::foldersize::Shutdown();         // and the folder-measuring one
     app::programscan::Shutdown();        // and the program-finding one
     app::extractjob::Shutdown();         // and the archive one, cancelling what it was unpacking
     ui::thumbnails::Shutdown();          // joins the decoder thread first

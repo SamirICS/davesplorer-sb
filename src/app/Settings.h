@@ -55,6 +55,7 @@ struct Settings
     bool  showShortcutBar = true;
     bool  showStatusBar = true;
     bool  showDetailsPane = false;
+    bool  showFolderSizes = false; // walk every folder a view shows for its size, in the background
     bool  openImagesInApp = true;  // double-click on an image: the built-in viewer instead of the shell
     bool  openDocumentsInApp = true;  // and on a PDF or Markdown file
     bool  openTextInApp = true;    // and on a text file: source, scripts, JSON, logs

@@ -51,6 +51,7 @@ struct Tab
     std::vector<std::string> typeNames;       // parallel to entries, shell type names
     std::vector<TreeNode> nodes;              // parallel to entries, where each sits in the tree
     std::vector<int> visible;                 // indices into entries after filter and sort
+    std::vector<uint8_t> sizeState;           // parallel to entries: a foldersize::State per folder row
     std::vector<uint8_t> selected;            // parallel to entries
     int focused = -1;                         // entry index with keyboard focus, -1 none
     int anchor = -1;                          // where a shift-range starts
@@ -81,6 +82,15 @@ struct Tab
     // it was asked under, and one that no longer matches is thrown away
     // instead of merged into a tree that has moved on.
     uint64_t scanGeneration = 0;
+
+    // Folder sizes: what foldersize::Version() and which listing the folder
+    // rows were last filled from, so a frame where nothing moved costs one
+    // comparison. A folder's total goes into its entry's size.
+    uint64_t sizesVersion = 0;
+    uint64_t sizesListing = 0;
+    size_t sizesEntries = 0;
+    std::string sizesPath;                    // the folder whose rows were asked for
+    bool sizing = false;                      // a folder row is queued or being walked
 };
 
 } // namespace app

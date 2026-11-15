@@ -1,5 +1,6 @@
 #include "app/Undo.h"
 #include "app/AppState.h"
+#include "app/FolderSize.h"
 #include "app/PathUtil.h"
 #include "platform/FileSystem.h"
 
@@ -70,6 +71,13 @@ bool UndoItemBack(UndoKind kind, const UndoItem& item, std::string& error)
 
 void RecordUndo(AppState& state, UndoEntry entry)
 {
+    // Every operation that changes a folder records here, so this is where
+    // the totals that counted what it touched are forgotten.
+    for (const UndoItem& item : entry.items)
+        {
+        foldersize::Invalidate(item.from);
+        foldersize::Invalidate(item.to);
+        }
     if (entry.items.empty()) return;
     state.undoHistory.push_back(std::move(entry));
     if (state.undoHistory.size() > kUndoDepth)
@@ -114,6 +122,8 @@ bool Undo(AppState& state, size_t index, std::string& error)
         {
         std::string why;
         if (!UndoItemBack(entry.kind, item, why)) failures.push_back(why);
+        foldersize::Invalidate(item.from);
+        foldersize::Invalidate(item.to);
         }
     RefreshAll(state);
     if (failures.empty())

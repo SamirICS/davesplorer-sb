@@ -238,6 +238,56 @@ bool IsElfProgram(const std::string&) { return false; }
 
 std::string FolderIdentity(const std::string&) { return {}; }
 
+bool ListSizes(const std::string& path, std::vector<SizeChild>& out)
+{
+    out.clear();
+    const std::wstring pattern = WithTrailingSlash(Utf8ToWide(path)) + L"*";
+    WIN32_FIND_DATAW fd;
+    // The sizes come with the listing: nothing is opened per file.
+    HANDLE h = FindFirstFileExW(pattern.c_str(), FindExInfoBasic, &fd, FindExSearchNameMatch,
+                                nullptr, FIND_FIRST_EX_LARGE_FETCH);
+    if (h == INVALID_HANDLE_VALUE)
+        {
+        const DWORD code = GetLastError();
+        return code == ERROR_FILE_NOT_FOUND || code == ERROR_NO_MORE_FILES;
+        }
+    do
+        {
+        if (fd.cFileName[0] == L'.' &&
+            (fd.cFileName[1] == L'\0' || (fd.cFileName[1] == L'.' && fd.cFileName[2] == L'\0')))
+            continue;
+        SizeChild c;
+        c.name = WideToUtf8(fd.cFileName);
+        const bool dir = (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+        // A reparse point on a folder is a junction, a symbolic link or a
+        // mounted volume, none of which the walk follows. On a file it is
+        // usually a cloud placeholder, whose size Explorer counts.
+        c.isLink = dir && (fd.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+        c.isDirectory = dir && !c.isLink;
+        c.size = dir ? 0 : (((uint64_t)fd.nFileSizeHigh << 32) | fd.nFileSizeLow);
+        c.modified = FileTimeToTicks(fd.ftLastWriteTime);
+        out.push_back(std::move(c));
+        }
+    while (FindNextFileW(h, &fd));
+    FindClose(h);
+    return true;
+}
+
+MountKind ClassifyMount(const std::string& path)
+{
+    wchar_t volume[MAX_PATH + 1] = {};
+    if (!GetVolumePathNameW(Utf8ToWide(path).c_str(), volume, MAX_PATH)) return MountKind::Local;
+    return GetDriveTypeW(volume) == DRIVE_REMOTE ? MountKind::Network : MountKind::Local;
+}
+
+uint64_t FolderDevice(const std::string&) { return 0; }
+
+void LowerCurrentThreadPriority()
+{
+    // Background mode lowers the thread's disk and memory priority as well.
+    SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_BEGIN);
+}
+
 bool IsDirectory(const std::string& path)
 {
     const DWORD a = GetFileAttributesW(Utf8ToWide(path).c_str());

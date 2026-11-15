@@ -44,4 +44,17 @@ void SetExpandAll(Tab& tab, const Settings& settings, bool on);
 // Back to the entries of tab.path alone.
 void ClearTree(Tab& tab);
 
+// Fills the folder rows' sizes from what foldersize knows. When the view is
+// on screen and Folder sizes is on, also asks for every shown folder not
+// measured yet. Costs one comparison on a frame where nothing changed.
+void UpdateFolderSizes(Tab& tab, const Settings& settings, bool onScreen);
+
+// "Calculate size": measures the selected folders afresh, whether or not
+// Folder sizes is on.
+void CalculateSelectedSizes(Tab& tab);
+
+// After the Folder sizes setting changed: off drops the walks it started,
+// on lets every view ask on its next frame.
+void FolderSizesToggled(AppState& state);
+
 } // namespace app

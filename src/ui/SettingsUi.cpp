@@ -6,6 +6,7 @@
 #include "ui/Widgets.h"
 
 #include "app/Extract.h"
+#include "app/Listing.h"
 #include "app/PathUtil.h"
 
 #include "imgui.h"
@@ -125,6 +126,11 @@ void DrawSettingsWindow(app::AppState& state, UiState& ui)
     ImGui::SameLine();
     if (ImGui::Button("Reset##fontsize")) s.fontSize = fonts::kDefaultSize;
     MutedText("Zoom (Ctrl + mouse wheel) scales everything else as well.");
+
+    SectionHeading("Folders");
+    if (ImGui::Checkbox("Show folder sizes", &s.showFolderSizes)) app::FolderSizesToggled(state);
+    MutedText("Measures every folder a view shows, in the background. Network drives are left out;\n"
+              "right-click > Calculate size measures one folder at any time.");
 
 #ifdef __linux__
     SectionHeading("Extracting archives");
